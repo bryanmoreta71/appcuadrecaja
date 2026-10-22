@@ -224,11 +224,25 @@ function Get-TicketPrueba {
     return $b.ToArray()
 }
 
+# Líneas de papel en blanco al final, para que todo el ticket quede fuera de la
+# cuchilla al arrancarlo. Si aún queda texto adentro, suba "lineasFinal" en
+# cuadre-config.json (por ejemplo a 8); si sobra mucho papel, bájelo.
+function Get-LineasFinal($config) {
+    if ($config.PSObject.Properties['lineasFinal']) { return [int]$config.lineasFinal }
+    return 5
+}
+
 function Send-Ticket($config, [byte[]]$datos) {
+    $lineas = [Math]::Max(0, [Math]::Min(30, (Get-LineasFinal $config)))
     if ($config.modo -eq 'texto') {
-        [CuadreImpresora]::ImprimirTexto($config.impresora, [CuadreImpresora]::ATexto($datos))
+        # El punto final obliga al controlador a no recortar las líneas en blanco.
+        $texto = [CuadreImpresora]::ATexto($datos) + ("`n" * $lineas) + "."
+        [CuadreImpresora]::ImprimirTexto($config.impresora, $texto)
     } else {
-        [CuadreImpresora]::ImprimirRaw($config.impresora, [CuadreImpresora]::AjustarAncho($datos, [int]$config.papelMm))
+        $datos = [CuadreImpresora]::AjustarAncho($datos, [int]$config.papelMm)
+        # ESC d n: avanzar n líneas. GS V 66 0: cortar (si la impresora tiene cortador).
+        $final = [byte[]](0x1b, 0x64, $lineas, 0x1d, 0x56, 66, 0)
+        [CuadreImpresora]::ImprimirRaw($config.impresora, [byte[]]($datos + $final))
     }
 }
 
@@ -238,8 +252,9 @@ function New-Config {
     $config = [ordered]@{
         puerto    = Select-Puerto
         impresora = Select-Impresora
-        papelMm   = 80
-        modo      = 'raw'
+        papelMm     = 80
+        modo        = 'raw'
+        lineasFinal = 5
     }
     Write-Host ''
     Write-Host 'Ancho del papel:  1) 80 mm   2) 58 mm' -ForegroundColor Cyan

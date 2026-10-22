@@ -49,6 +49,10 @@ SIN VENTANA Y AUTOMATICO
 PROBLEMAS
 ---------
 - Para cambiar el puerto o la impresora: borre cuadre-config.json y abra de nuevo.
+- Si al arrancar el papel queda texto adentro (o sobra mucho papel en blanco): abra
+  cuadre-config.json con el Bloc de notas, cambie el numero de "lineasFinal"
+  (mas alto = mas papel al final), guarde y reinicie el receptor
+  ("Detener receptor.bat" y luego "Iniciar receptor (oculto).vbs").
 - Si el ticket sale con simbolos raros, borre cuadre-config.json, abra de nuevo y
   responda N en la prueba: usara el controlador de Windows (modo texto).
 - Si la ventana se cierra sola con un error en rojo sobre "scripts deshabilitados",
