@@ -62,7 +62,9 @@ class BluetoothPrinter(private val context: Context) {
 
     @SuppressLint("MissingPermission")
     fun looksLikePrinter(device: BluetoothDevice): Boolean {
-        if (device.bluetoothClass?.majorDeviceClass == BluetoothClass.Device.Major.IMAGING) return true
+        val major = device.bluetoothClass?.majorDeviceClass
+        // También sirve una computadora con el receptor de Windows (carpeta windows/).
+        if (major == BluetoothClass.Device.Major.IMAGING || major == BluetoothClass.Device.Major.COMPUTER) return true
         val name = device.name?.uppercase().orEmpty()
         return PRINTER_NAME_HINTS.any { name.contains(it) }
     }

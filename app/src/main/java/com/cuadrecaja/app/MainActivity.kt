@@ -3,6 +3,7 @@ package com.cuadrecaja.app
 import android.Manifest
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothClass
 import android.bluetooth.BluetoothDevice
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -289,8 +290,9 @@ class MainActivity : ComponentActivity() {
                     }
 
                     Text(
-                        "Encienda la impresora y búsquela aquí. No hace falta conectarla en los ajustes " +
-                            "del teléfono, aunque allí aparezca como \"acceso a Internet\".",
+                        "Para imprimir en la computadora, elija su nombre en la lista de emparejadas " +
+                            "(debe tener abierto el receptor). Para una impresora Bluetooth, enciéndala " +
+                            "y búsquela aquí.",
                     )
                     Spacer(Modifier.height(8.dp))
                     if (scanning) {
@@ -317,7 +319,11 @@ class MainActivity : ComponentActivity() {
     @SuppressLint("MissingPermission")
     @androidx.compose.runtime.Composable
     private fun DeviceRow(device: BluetoothDevice, onClick: () -> Unit) {
-        val marker = if (printer.looksLikePrinter(device)) "🖨️ " else ""
+        val marker = when {
+            device.bluetoothClass?.majorDeviceClass == BluetoothClass.Device.Major.COMPUTER -> "💻 "
+            printer.looksLikePrinter(device) -> "🖨️ "
+            else -> ""
+        }
         Text(
             marker + (device.name ?: device.address),
             fontSize = 18.sp,

@@ -1,0 +1,47 @@
+RECEPTOR DE CUADRE DE CAJA PARA WINDOWS
+=======================================
+
+Imprime en la impresora de la computadora (SAT u otra) el ticket que manda el celular
+por Bluetooth, sin que aparezca la ventana de imprimir. No hay que instalar nada:
+es un archivo que se abre con doble clic.
+
+PREPARACION (una sola vez)
+--------------------------
+1. Emparejar el celular con la computadora:
+   Windows: Configuracion > Bluetooth y dispositivos > Agregar dispositivo > Bluetooth,
+   elegir el celular y aceptar el codigo en los dos lados.
+
+2. Crear el puerto COM entrante:
+   Configuracion > Bluetooth y dispositivos > Dispositivos >
+   "Mas opciones de Bluetooth" (abajo del todo) > pestana "Puertos COM" >
+   Agregar... > "Entrante (el dispositivo inicia la conexion)" > Aceptar.
+   Anote el numero que aparece (por ejemplo COM5).
+   * Si Windows pide la clave de administrador en este paso, el de soporte solo
+     tiene que hacer este paso una vez.
+
+3. Copiar esta carpeta (cuadre-receptor.ps1 e "Iniciar receptor.bat") a la computadora,
+   por ejemplo en Documentos.
+
+4. Doble clic en "Iniciar receptor.bat":
+   - Elija el puerto COM entrante del paso 2 (dice "Bluetooth").
+   - Elija la impresora SAT.
+   - Elija el ancho del papel (80 mm o 58 mm).
+   - Sale un ticket de PRUEBA. Si salio bien, responda S.
+   Esto queda guardado; las siguientes veces no pregunta nada.
+
+USO DIARIO
+----------
+1. Doble clic en "Iniciar receptor.bat" y deje la ventana abierta (puede minimizarla).
+2. En la app del celular toque "Cuadrar caja". La primera vez elija el nombre de la
+   computadora en la lista. El ticket sale solo en la impresora SAT.
+
+Para que se abra solo al prender la computadora: presione Windows+R, escriba
+shell:startup, Enter, y pegue ahi un acceso directo de "Iniciar receptor.bat".
+
+PROBLEMAS
+---------
+- Para cambiar el puerto o la impresora: borre cuadre-config.json y abra de nuevo.
+- Si el ticket sale con simbolos raros, borre cuadre-config.json, abra de nuevo y
+  responda N en la prueba: usara el controlador de Windows (modo texto).
+- Si la ventana se cierra sola con un error en rojo sobre "scripts deshabilitados",
+  la empresa bloquea PowerShell; habria que pedirlo a soporte.

@@ -27,6 +27,13 @@ Lo contado se guarda aunque se cierre la app. Para un conteo nuevo toque **Empez
   hace la app al imprimir. Puede apagar "Acceso a Internet" en el engranaje del dispositivo.
 - **Cambiar impresora** en la pantalla del reporte permite elegir otra.
 
+## Imprimir en la computadora (impresora SAT u otra de Windows)
+
+La carpeta [`windows/`](windows/) tiene un receptor que no se instala: se abre con doble clic
+en `Iniciar receptor.bat`. Recibe el ticket del celular por Bluetooth (puerto COM entrante
+de Windows) y lo imprime directo en la impresora, sin ventana de imprimir.
+Los pasos están en [`windows/LEAME.txt`](windows/LEAME.txt).
+
 ## Compilar
 
 - Abra la carpeta en Android Studio y presione ▶️, o
