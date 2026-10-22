@@ -19,9 +19,12 @@ Lo contado se guarda aunque se cierre la app. Para un conteo nuevo toque **Empez
 
 - Funciona con impresoras térmicas portátiles Bluetooth que usan ESC/POS (PT-210, MTP-II,
   Goojprt, Xprinter y similares).
-- Primero emparéjela una vez en *Ajustes → Bluetooth* del teléfono.
-- La app la encuentra sola entre los dispositivos emparejados y la recuerda. Si hay varios
-  dispositivos y no puede saber cuál es la impresora, le pregunta una sola vez.
+- La app la encuentra sola entre los dispositivos emparejados y la recuerda. Si no está
+  emparejada o no puede saber cuál es, muestra **Buscar impresoras cercanas**: toque la
+  impresora y la app la empareja (PIN 0000 o 1234 si lo pide) e imprime.
+- Si en *Ajustes → Bluetooth* el teléfono la muestra como "acceso a Internet" o dice
+  "no se pudo conectar", es normal: estas impresoras solo se emparejan, la conexión la
+  hace la app al imprimir. Puede apagar "Acceso a Internet" en el engranaje del dispositivo.
 - **Cambiar impresora** en la pantalla del reporte permite elegir otra.
 
 ## Compilar

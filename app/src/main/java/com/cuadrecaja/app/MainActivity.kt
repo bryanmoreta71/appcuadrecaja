@@ -8,21 +8,28 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -33,11 +40,15 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.lightColorScheme
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -46,6 +57,7 @@ import com.cuadrecaja.app.ui.CountScreen
 import com.cuadrecaja.app.ui.Green
 import com.cuadrecaja.app.ui.HomeScreen
 import com.cuadrecaja.app.ui.ReportScreen
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.util.Date
 
@@ -65,11 +77,20 @@ class MainActivity : ComponentActivity() {
     private var printing by mutableStateOf(false)
     private var pickerDevices by mutableStateOf<List<BluetoothDevice>?>(null)
     private var confirmReset by mutableStateOf(false)
+    private val foundDevices = mutableStateListOf<BluetoothDevice>()
+    private var scanning by mutableStateOf(false)
+    private var scanJob: Job? = null
 
     private val permissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             if (granted) printCurrentReport()
             else printStatus = "Se necesita permiso de Bluetooth para imprimir."
+        }
+
+    private val scanPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+            if (result.values.all { it }) startScan()
+            else printStatus = "Se necesita permiso para buscar la impresora."
         }
 
     private val enableBluetoothLauncher =
@@ -133,6 +154,7 @@ class MainActivity : ComponentActivity() {
                 }
 
                 pickerDevices?.let { devices -> PrinterPicker(devices) }
+                LaunchedEffect(pickerDevices == null) { if (pickerDevices == null) stopScan() }
                 if (confirmReset) ResetDialog()
             }
         }
@@ -175,6 +197,7 @@ class MainActivity : ComponentActivity() {
         val device = printer.findPrinter()
         if (device == null) {
             pickerDevices = printer.pairedDevices()
+            startScan()
             return
         }
         print(device, report.lines)
@@ -195,6 +218,57 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // ---------- Buscar y emparejar la impresora desde la app ----------
+
+    private fun scanPermissions(): Array<String> =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
+        } else {
+            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+
+    private fun startScan() {
+        val missing = scanPermissions().filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (missing.isNotEmpty()) {
+            scanPermissionLauncher.launch(missing.toTypedArray())
+            return
+        }
+        if (pickerDevices == null) pickerDevices = printer.pairedDevices()
+        foundDevices.clear()
+        scanning = true
+        scanJob?.cancel()
+        scanJob = lifecycleScope.launch {
+            printer.discover().collect { d ->
+                if (foundDevices.none { it.address == d.address }) foundDevices += d
+            }
+            scanning = false
+        }
+    }
+
+    private fun stopScan() {
+        scanJob?.cancel()
+        scanJob = null
+        scanning = false
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun pairAndPrint(device: BluetoothDevice) {
+        pickerDevices = null
+        printing = true
+        printStatus = "Emparejando con ${device.name ?: device.address}… Si pide PIN, pruebe 0000 o 1234."
+        lifecycleScope.launch {
+            val paired = printer.pair(device)
+            printing = false
+            if (!paired) {
+                printStatus = "No se pudo emparejar. Apague y encienda la impresora e intente de nuevo."
+                return@launch
+            }
+            (screen as? Screen.Report)?.let { print(device, it.lines) }
+        }
+    }
+
     @SuppressLint("MissingPermission")
     @androidx.compose.runtime.Composable
     private fun PrinterPicker(devices: List<BluetoothDevice>) {
@@ -202,36 +276,55 @@ class MainActivity : ComponentActivity() {
             onDismissRequest = { pickerDevices = null },
             title = { Text("Elija la impresora") },
             text = {
-                if (devices.isEmpty()) {
-                    Text("No hay impresoras emparejadas. Encienda la impresora y emparéjela en los ajustes de Bluetooth del teléfono.")
-                } else {
-                    Column {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    if (devices.isNotEmpty()) {
+                        Text("Emparejadas", fontWeight = FontWeight.Bold)
                         for (d in devices) {
-                            Text(
-                                d.name ?: d.address,
-                                fontSize = 18.sp,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        pickerDevices = null
-                                        (screen as? Screen.Report)?.let { print(d, it.lines) }
-                                    }
-                                    .background(Color.Transparent)
-                                    .padding(vertical = 14.dp),
-                            )
+                            DeviceRow(d) {
+                                pickerDevices = null
+                                (screen as? Screen.Report)?.let { print(d, it.lines) }
+                            }
                         }
+                        Spacer(Modifier.height(12.dp))
+                    }
+
+                    Text(
+                        "Encienda la impresora y búsquela aquí. No hace falta conectarla en los ajustes " +
+                            "del teléfono, aunque allí aparezca como \"acceso a Internet\".",
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    if (scanning) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                            Spacer(Modifier.width(10.dp))
+                            Text("Buscando…")
+                        }
+                    } else {
+                        OutlinedButton(onClick = ::startScan, modifier = Modifier.fillMaxWidth()) {
+                            Text("Buscar impresoras cercanas")
+                        }
+                    }
+                    for (d in foundDevices) {
+                        DeviceRow(d) { pairAndPrint(d) }
                     }
                 }
             },
-            confirmButton = {
-                if (devices.isEmpty()) {
-                    TextButton(onClick = {
-                        pickerDevices = null
-                        startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
-                    }) { Text("Abrir ajustes de Bluetooth") }
-                }
-            },
+            confirmButton = {},
             dismissButton = { TextButton(onClick = { pickerDevices = null }) { Text("Cancelar") } },
+        )
+    }
+
+    @SuppressLint("MissingPermission")
+    @androidx.compose.runtime.Composable
+    private fun DeviceRow(device: BluetoothDevice, onClick: () -> Unit) {
+        val marker = if (printer.looksLikePrinter(device)) "🖨️ " else ""
+        Text(
+            marker + (device.name ?: device.address),
+            fontSize = 18.sp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+                .padding(vertical = 14.dp),
         )
     }
 

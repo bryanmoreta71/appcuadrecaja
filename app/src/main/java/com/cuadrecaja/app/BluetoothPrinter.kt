@@ -5,9 +5,20 @@ import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothClass
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.os.Build
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.coroutines.resume
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.text.Normalizer
@@ -56,6 +67,68 @@ class BluetoothPrinter(private val context: Context) {
         return PRINTER_NAME_HINTS.any { name.contains(it) }
     }
 
+    /**
+     * Busca dispositivos Bluetooth cercanos. Se usa cuando la impresora no se deja emparejar
+     * desde los ajustes del teléfono (por ejemplo, cuando el teléfono la toma como
+     * "acceso a Internet" en vez de impresora).
+     */
+    @SuppressLint("MissingPermission")
+    fun discover(): Flow<BluetoothDevice> = callbackFlow {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                when (intent.action) {
+                    BluetoothDevice.ACTION_FOUND ->
+                        intent.bluetoothDevice()?.let { if (it.bondState != BluetoothDevice.BOND_BONDED) trySend(it) }
+                    BluetoothAdapter.ACTION_DISCOVERY_FINISHED -> close()
+                }
+            }
+        }
+        val filter = IntentFilter().apply {
+            addAction(BluetoothDevice.ACTION_FOUND)
+            addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED)
+        }
+        ContextCompat.registerReceiver(context, receiver, filter, ContextCompat.RECEIVER_EXPORTED)
+        if (adapter?.startDiscovery() != true) close()
+        awaitClose {
+            adapter?.cancelDiscovery()
+            context.unregisterReceiver(receiver)
+        }
+    }
+
+    /**
+     * Empareja la impresora directamente desde la app, sin pedirle al teléfono que la "conecte".
+     * El teléfono puede pedir un PIN: casi siempre es 0000 o 1234.
+     */
+    @SuppressLint("MissingPermission")
+    suspend fun pair(device: BluetoothDevice): Boolean {
+        if (device.bondState == BluetoothDevice.BOND_BONDED) return true
+        adapter?.cancelDiscovery()
+        return withTimeoutOrNull(90_000) {
+            suspendCancellableCoroutine { cont ->
+                val receiver = object : BroadcastReceiver() {
+                    override fun onReceive(context: Context, intent: Intent) {
+                        if (intent.bluetoothDevice()?.address != device.address) return
+                        val state = intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.ERROR)
+                        if (state == BluetoothDevice.BOND_BONDED || state == BluetoothDevice.BOND_NONE) {
+                            context.unregisterReceiver(this)
+                            if (cont.isActive) cont.resume(state == BluetoothDevice.BOND_BONDED)
+                        }
+                    }
+                }
+                ContextCompat.registerReceiver(
+                    context, receiver,
+                    IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED),
+                    ContextCompat.RECEIVER_EXPORTED,
+                )
+                cont.invokeOnCancellation { runCatching { context.unregisterReceiver(receiver) } }
+                if (!device.createBond()) {
+                    context.unregisterReceiver(receiver)
+                    cont.resume(false)
+                }
+            }
+        } ?: false
+    }
+
     @SuppressLint("MissingPermission")
     suspend fun print(device: BluetoothDevice, lines: List<ReportLine>) = withContext(Dispatchers.IO) {
         adapter?.cancelDiscovery()
@@ -74,6 +147,14 @@ class BluetoothPrinter(private val context: Context) {
         }
         savedAddress = device.address
     }
+
+    private fun Intent.bluetoothDevice(): BluetoothDevice? =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
+        }
 
     companion object {
         private const val KEY_ADDRESS = "address"
