@@ -268,7 +268,14 @@ function Send-Ticket($config, [byte[]]$datos) {
         $margen = [int]([double](Get-Ajuste $config 'margenIzqMm' 0) * 8)  # 8 puntos por mm
         $datos = [CuadreImpresora]::AjustarAncho($datos, [int]$config.papelMm, $margen)
         # ESC d n: avanzar n líneas. GS V 66 0: cortar (si la impresora tiene cortador).
-        $final = [byte[]](0x1b, 0x64, $lineas, 0x1d, 0x56, 66, 0)
+        # Después se devuelve la impresora a como estaba (separación de letras, margen y ancho
+        # normales + ESC @), porque esos ajustes se quedan guardados y descuadran lo que
+        # impriman otros programas, como el de facturas.
+        $final = [byte[]](0x1b, 0x64, $lineas, 0x1d, 0x56, 66, 0,
+            0x1b, 0x20, 0,              # ESC SP 0: separación de letras normal
+            0x1d, 0x4c, 0, 0,           # GS L 0: sin margen izquierdo
+            0x1d, 0x57, 0x40, 0x02,     # GS W 576: todo el ancho (la impresora lo limita a su máximo)
+            0x1b, 0x40)                 # ESC @: valores de fábrica
         [CuadreImpresora]::ImprimirRaw($config.impresora, [byte[]]($datos + $final))
     }
 }
