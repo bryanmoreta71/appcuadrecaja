@@ -53,6 +53,10 @@ PROBLEMAS
   cuadre-config.json con el Bloc de notas, cambie el numero de "lineasFinal"
   (mas alto = mas papel al final), guarde y reinicie el receptor
   ("Detener receptor.bat" y luego "Iniciar receptor (oculto).vbs").
+- Si la impresion sale corrida a la derecha o a la izquierda: en cuadre-config.json
+  agregue "margenIzqMm" (en milimetros, 0 = pegado al borde izquierdo). En modo
+  texto tambien puede usar "margenSupMm" (espacio arriba) y "anchoImpresionMm"
+  (ancho util de la tirilla, 72 en papel de 80 mm).
 - Si el ticket sale con simbolos raros, borre cuadre-config.json, abra de nuevo y
   responda N en la prueba: usara el controlador de Windows (modo texto).
 - Si la ventana se cierra sola con un error en rojo sobre "scripts deshabilitados",

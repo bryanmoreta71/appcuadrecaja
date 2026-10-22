@@ -80,17 +80,22 @@ public static class CuadreImpresora
         finally { ClosePrinter(h); }
     }
 
-    // Ajusta el ticket (hecho para 32 columnas) al papel: en 80 mm lo centra con margen.
-    public static byte[] AjustarAncho(byte[] datos, int anchoPapelMm)
+    // Ajusta el ticket (hecho para 32 columnas) al papel. En 80 mm separa un poco las letras
+    // (ESC SP) para que las 32 columnas ocupen todo el ancho desde el borde izquierdo, y aplica
+    // el margen izquierdo configurado (GS L, en puntos de 1/8 mm).
+    public static byte[] AjustarAncho(byte[] datos, int anchoPapelMm, int margenIzqPuntos)
     {
-        if (anchoPapelMm != 80) return datos;
-        // 80 mm = 576 puntos; 32 columnas = 384 puntos -> margen izquierdo de 96 puntos.
-        byte[] margen = { 0x1d, 0x4c, 96, 0, 0x1d, 0x57, 0x80, 0x01 };
+        List<byte> extra = new List<byte>();
+        if (margenIzqPuntos > 0)
+            extra.AddRange(new byte[] { 0x1d, 0x4c, (byte)(margenIzqPuntos % 256), (byte)(margenIzqPuntos / 256) });
+        if (anchoPapelMm == 80)
+            extra.AddRange(new byte[] { 0x1b, 0x20, 5 }); // 12 + 5 = 17 puntos por letra -> 32 letras = 68 mm
+        if (extra.Count == 0) return datos;
         int inicio = (datos.Length >= 2 && datos[0] == 0x1b && datos[1] == 0x40) ? 2 : 0;
-        byte[] r = new byte[datos.Length + margen.Length];
+        byte[] r = new byte[datos.Length + extra.Count];
         Array.Copy(datos, 0, r, 0, inicio);
-        Array.Copy(margen, 0, r, inicio, margen.Length);
-        Array.Copy(datos, inicio, r, inicio + margen.Length, datos.Length - inicio);
+        extra.CopyTo(r, inicio);
+        Array.Copy(datos, inicio, r, inicio + extra.Count, datos.Length - inicio);
         return r;
     }
 
@@ -113,6 +118,7 @@ public static class CuadreImpresora
             {
                 byte c = d[i + 1];
                 if (c == 0x4c || c == 0x57) i += 4; // GS L / GS W
+                else if (c == 0x56) i += 4;          // GS V m n (corte)
                 else i += 3;                         // GS ! n, etc.
             }
             else
@@ -126,24 +132,34 @@ public static class CuadreImpresora
 
     // Plan B para impresoras cuyo controlador no acepta RAW: imprime el texto con el
     // controlador de Windows, en letra de ancho fijo, sin mostrar ninguna ventana.
-    public static void ImprimirTexto(string impresora, string texto)
+    // Empieza en la esquina superior izquierda, la letra se ajusta al ancho de la tirilla y
+    // el largo de la hoja se ajusta al texto (para no gastar una hoja entera de 300 mm).
+    public static void ImprimirTexto(string impresora, string texto, float anchoMm, float margenIzqMm, float margenSupMm)
     {
         string[] lineas = texto.Split('\n');
         int siguiente = 0;
-        using (Font fuente = new Font("Courier New", 9f))
+        // Courier New: cada letra mide 0.6 del tamaño de la fuente. 32 letras en el ancho, con 5% de holgura.
+        float puntos = (anchoMm / 25.4f) * 72f / (32f * 0.6f) * 0.95f;
+        float x = margenIzqMm / 25.4f * 100f;
+        float y0 = margenSupMm / 25.4f * 100f;
+        using (Font fuente = new Font("Courier New", puntos, FontStyle.Bold))
         using (PrintDocument doc = new PrintDocument())
         {
             doc.PrinterSettings.PrinterName = impresora;
             doc.DocumentName = "Cuadre de caja";
             doc.PrintController = new StandardPrintController();
-            doc.DefaultPageSettings.Margins = new Margins(5, 5, 5, 5);
+            doc.OriginAtMargins = false;
+            doc.DefaultPageSettings.Margins = new Margins(0, 0, 0, 0);
+            float altoLinea = puntos * 1.15f / 72f * 100f;
+            int largo = (int)(y0 + altoLinea * (lineas.Length + 1) + 20);
+            doc.DefaultPageSettings.PaperSize = new PaperSize("Ticket", (int)(anchoMm / 25.4f * 100f), Math.Max(largo, 100));
             doc.PrintPage += delegate(object s, PrintPageEventArgs e)
             {
-                float y = e.MarginBounds.Top;
+                float y = y0;
                 float alto = fuente.GetHeight(e.Graphics);
-                while (siguiente < lineas.Length && y + alto <= e.MarginBounds.Bottom)
+                while (siguiente < lineas.Length && y + alto <= e.PageBounds.Height)
                 {
-                    e.Graphics.DrawString(lineas[siguiente], fuente, Brushes.Black, e.MarginBounds.Left, y);
+                    e.Graphics.DrawString(lineas[siguiente], fuente, Brushes.Black, x, y);
                     y += alto;
                     siguiente++;
                 }
@@ -227,9 +243,15 @@ function Get-TicketPrueba {
 # Líneas de papel en blanco al final, para que todo el ticket quede fuera de la
 # cuchilla al arrancarlo. Si aún queda texto adentro, suba "lineasFinal" en
 # cuadre-config.json (por ejemplo a 8); si sobra mucho papel, bájelo.
-function Get-LineasFinal($config) {
-    if ($config.PSObject.Properties['lineasFinal']) { return [int]$config.lineasFinal }
-    return 5
+function Get-LineasFinal($config) { return [int](Get-Ajuste $config 'lineasFinal' 5) }
+
+# Ajustes opcionales de cuadre-config.json, con su valor por defecto si no están.
+#   margenIzqMm: mueve la impresión a la derecha (mm). 0 = pegado al borde izquierdo.
+#   margenSupMm: espacio arriba en modo texto (mm).
+#   anchoImpresionMm: ancho útil de la tirilla (72 mm en papel de 80 mm).
+function Get-Ajuste($config, $nombre, $porDefecto) {
+    if ($config.PSObject.Properties[$nombre]) { return $config.$nombre }
+    return $porDefecto
 }
 
 function Send-Ticket($config, [byte[]]$datos) {
@@ -237,9 +259,14 @@ function Send-Ticket($config, [byte[]]$datos) {
     if ($config.modo -eq 'texto') {
         # El punto final obliga al controlador a no recortar las líneas en blanco.
         $texto = [CuadreImpresora]::ATexto($datos) + ("`n" * $lineas) + "."
-        [CuadreImpresora]::ImprimirTexto($config.impresora, $texto)
+        $ancho = if ([int]$config.papelMm -eq 58) { 48 } else { 72 }
+        [CuadreImpresora]::ImprimirTexto($config.impresora, $texto,
+            [float](Get-Ajuste $config 'anchoImpresionMm' $ancho),
+            [float](Get-Ajuste $config 'margenIzqMm' 0),
+            [float](Get-Ajuste $config 'margenSupMm' 0))
     } else {
-        $datos = [CuadreImpresora]::AjustarAncho($datos, [int]$config.papelMm)
+        $margen = [int]([double](Get-Ajuste $config 'margenIzqMm' 0) * 8)  # 8 puntos por mm
+        $datos = [CuadreImpresora]::AjustarAncho($datos, [int]$config.papelMm, $margen)
         # ESC d n: avanzar n líneas. GS V 66 0: cortar (si la impresora tiene cortador).
         $final = [byte[]](0x1b, 0x64, $lineas, 0x1d, 0x56, 66, 0)
         [CuadreImpresora]::ImprimirRaw($config.impresora, [byte[]]($datos + $final))
