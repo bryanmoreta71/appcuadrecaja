@@ -57,3 +57,26 @@ class MoneyTest {
         assertTrue(String(bytes, Charsets.US_ASCII).contains("Ano 25c"))
     }
 }
+
+class MessageTest {
+    @Test
+    fun parteRenglonesSinCortarPalabras() {
+        val lines = wrapText("Se dejan 20 dolares en sencillo para el turno de la noche, gracias")
+        assertTrue(lines.all { it.length <= LINE_WIDTH })
+        assertEquals("Se dejan 20 dolares en sencillo", lines[0])
+        assertEquals("Se dejan 20 dolares en sencillo para el turno de la noche, gracias", lines.joinToString(" "))
+    }
+
+    @Test
+    fun respetaSaltosDeLineaYPalabrasLargas() {
+        assertEquals(listOf("Hola", "", "Chao"), wrapText("Hola\n\nChao"))
+        assertEquals(listOf("a".repeat(32), "aaa"), wrapText("a".repeat(35)))
+    }
+
+    @Test
+    fun mensajeTieneTituloYTexto() {
+        val text = buildMessage("Falta cambio", java.util.Date()).map { it.text }
+        assertEquals("MENSAJE", text.first())
+        assertEquals("Falta cambio", text.last())
+    }
+}

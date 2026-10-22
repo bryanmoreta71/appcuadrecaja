@@ -217,3 +217,45 @@ fun ReportScreen(reportText: String, status: String, printing: Boolean, onPrint:
         }
     }
 }
+
+@Composable
+fun MessageScreen(
+    text: String,
+    onTextChange: (String) -> Unit,
+    status: String,
+    printing: Boolean,
+    onPrint: () -> Unit,
+) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        OutlinedTextField(
+            value = text,
+            onValueChange = onTextChange,
+            label = { Text("Escriba el mensaje") },
+            minLines = 6,
+            textStyle = TextStyle(fontSize = 20.sp),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Button(
+            onClick = onPrint,
+            enabled = !printing && text.isNotBlank(),
+            modifier = Modifier.fillMaxWidth().height(64.dp),
+            shape = RoundedCornerShape(14.dp),
+        ) {
+            Text(if (printing) "Imprimiendo…" else "🖨️  Imprimir mensaje", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        }
+        if (status.isNotEmpty()) {
+            Text(status, Modifier.fillMaxWidth(), textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyLarge)
+        }
+        if (text.isNotEmpty()) {
+            TextButton(onClick = { onTextChange("") }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+                Text("Borrar texto")
+            }
+        }
+    }
+}

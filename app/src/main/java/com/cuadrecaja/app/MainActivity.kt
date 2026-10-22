@@ -28,8 +28,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -57,6 +60,7 @@ import androidx.lifecycle.lifecycleScope
 import com.cuadrecaja.app.ui.CountScreen
 import com.cuadrecaja.app.ui.Green
 import com.cuadrecaja.app.ui.HomeScreen
+import com.cuadrecaja.app.ui.MessageScreen
 import com.cuadrecaja.app.ui.ReportScreen
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -66,6 +70,7 @@ private sealed interface Screen {
     data object Home : Screen
     data class Count(val kind: Kind) : Screen
     data class Report(val lines: List<ReportLine>) : Screen
+    data object Message : Screen
 }
 
 class MainActivity : ComponentActivity() {
@@ -78,6 +83,8 @@ class MainActivity : ComponentActivity() {
     private var printing by mutableStateOf(false)
     private var pickerDevices by mutableStateOf<List<BluetoothDevice>?>(null)
     private var confirmReset by mutableStateOf(false)
+    private var menuOpen by mutableStateOf(false)
+    private var messageText by mutableStateOf("")
     private val foundDevices = mutableStateListOf<BluetoothDevice>()
     private var scanning by mutableStateOf(false)
     private var scanJob: Job? = null
@@ -126,7 +133,25 @@ class MainActivity : ComponentActivity() {
                                 containerColor = Green,
                                 titleContentColor = Color.White,
                                 navigationIconContentColor = Color.White,
+                                actionIconContentColor = Color.White,
                             ),
+                            actions = {
+                                if (current != Screen.Message) {
+                                    IconButton(onClick = { menuOpen = true }) {
+                                        Icon(Icons.Filled.MoreVert, contentDescription = "Más opciones")
+                                    }
+                                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                                        DropdownMenuItem(
+                                            text = { Text("Imprimir mensaje", fontSize = 18.sp) },
+                                            onClick = {
+                                                menuOpen = false
+                                                printStatus = ""
+                                                screen = Screen.Message
+                                            },
+                                        )
+                                    }
+                                }
+                            },
                         )
                     },
                 ) { padding ->
@@ -150,6 +175,13 @@ class MainActivity : ComponentActivity() {
                                     else printCurrentReport()
                                 },
                             )
+                            Screen.Message -> MessageScreen(
+                                text = messageText,
+                                onTextChange = { messageText = it },
+                                status = printStatus,
+                                printing = printing,
+                                onPrint = ::printCurrentReport,
+                            )
                         }
                     }
                 }
@@ -165,6 +197,14 @@ class MainActivity : ComponentActivity() {
         Screen.Home -> "Cuadre de Caja"
         is Screen.Count -> screen.kind.title
         is Screen.Report -> "Reporte"
+        Screen.Message -> "Mensaje"
+    }
+
+    /** Lo que hay que imprimir en la pantalla actual: el cuadre o el mensaje. */
+    private fun linesToPrint(): List<ReportLine>? = when (val s = screen) {
+        is Screen.Report -> s.lines
+        Screen.Message -> messageText.takeIf { it.isNotBlank() }?.let { buildMessage(it, Date()) }
+        else -> null
     }
 
     /** "Cuadrar caja": arma el reporte con fecha y hora actuales y lo manda a imprimir. */
@@ -179,7 +219,7 @@ class MainActivity : ComponentActivity() {
             ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
 
     private fun printCurrentReport() {
-        val report = screen as? Screen.Report ?: return
+        val lines = linesToPrint() ?: return
         if (printing) return
 
         if (!printer.isSupported) {
@@ -201,7 +241,7 @@ class MainActivity : ComponentActivity() {
             startScan()
             return
         }
-        print(device, report.lines)
+        print(device, lines)
     }
 
     @SuppressLint("MissingPermission")
@@ -211,9 +251,9 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             printStatus = try {
                 printer.print(device, lines)
-                "✓ Reporte impreso"
+                "✓ Impreso"
             } catch (e: Exception) {
-                "No se pudo imprimir. Verifique que la impresora esté encendida y cerca, y toque \"Imprimir reporte\"."
+                "No se pudo imprimir. Verifique que la impresora esté encendida y cerca, y toque \"Imprimir\" de nuevo."
             }
             printing = false
         }
@@ -266,7 +306,7 @@ class MainActivity : ComponentActivity() {
                 printStatus = "No se pudo emparejar. Apague y encienda la impresora e intente de nuevo."
                 return@launch
             }
-            (screen as? Screen.Report)?.let { print(device, it.lines) }
+            linesToPrint()?.let { print(device, it) }
         }
     }
 
@@ -283,7 +323,7 @@ class MainActivity : ComponentActivity() {
                         for (d in devices) {
                             DeviceRow(d) {
                                 pickerDevices = null
-                                (screen as? Screen.Report)?.let { print(d, it.lines) }
+                                linesToPrint()?.let { print(d, it) }
                             }
                         }
                         Spacer(Modifier.height(12.dp))
