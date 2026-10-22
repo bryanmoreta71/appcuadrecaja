@@ -6,6 +6,7 @@
 # Uso: doble clic en "Iniciar receptor.bat". La primera vez pregunta el puerto COM
 # y la impresora, y lo guarda en cuadre-config.json. Para volver a configurar:
 # "Iniciar receptor.bat" -Reconfigurar  (o borrar cuadre-config.json).
+# Para que funcione sin ventana: "Iniciar receptor (oculto).vbs". Para apagarlo: "Detener receptor.bat".
 
 param(
     [switch]$Reconfigurar
@@ -13,6 +14,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $ConfigPath = Join-Path $PSScriptRoot 'cuadre-config.json'
+$LogPath = Join-Path $PSScriptRoot 'cuadre-receptor.log'
 
 # Si pasan más de estos milisegundos sin recibir datos, el ticket se da por completo.
 $FinDeTicketMs = 1500
@@ -155,6 +157,11 @@ public static class CuadreImpresora
 
 function Write-Info($texto, $color = 'Gray') {
     Write-Host ("[{0:HH:mm:ss}] {1}" -f (Get-Date), $texto) -ForegroundColor $color
+    # También se anota en el registro, para poder revisar cuando funciona sin ventana.
+    try {
+        if ((Test-Path $LogPath) -and (Get-Item $LogPath).Length -gt 1MB) { Remove-Item $LogPath }
+        Add-Content -Path $LogPath -Value ("[{0:dd/MM/yyyy HH:mm:ss}] {1}" -f (Get-Date), $texto) -Encoding UTF8
+    } catch { }
 }
 
 function Read-Opcion($pregunta, $max, $porDefecto) {
@@ -257,6 +264,15 @@ function New-Config {
 # ---------- Inicio ----------
 
 $Host.UI.RawUI.WindowTitle = 'Receptor - Cuadre de Caja'
+
+# Solo un receptor a la vez: dos no pueden usar el mismo puerto COM.
+$creado = $false
+$unico = New-Object System.Threading.Mutex($true, 'Local\CuadreCajaReceptor', [ref]$creado)
+if (-not $creado) {
+    Write-Host 'El receptor ya está funcionando (quizás oculto). Use "Detener receptor.bat" para apagarlo.' -ForegroundColor Yellow
+    Start-Sleep -Seconds 5
+    exit
+}
 if ($Reconfigurar -or -not (Test-Path $ConfigPath)) {
     $config = New-Config
 } else {

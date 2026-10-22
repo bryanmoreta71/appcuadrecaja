@@ -35,8 +35,16 @@ USO DIARIO
 2. En la app del celular toque "Cuadrar caja". La primera vez elija el nombre de la
    computadora en la lista. El ticket sale solo en la impresora SAT.
 
-Para que se abra solo al prender la computadora: presione Windows+R, escriba
-shell:startup, Enter, y pegue ahi un acceso directo de "Iniciar receptor.bat".
+SIN VENTANA Y AUTOMATICO
+------------------------
+- "Activar inicio automatico.bat" (doble clic una vez): desde ese momento el receptor
+  arranca solo y oculto cada vez que se enciende la computadora. No pide clave.
+- "Iniciar receptor (oculto).vbs": lo inicia sin ventana en este momento.
+- "Detener receptor.bat": lo apaga.
+- "Quitar inicio automatico.bat": deja de arrancar solo y lo apaga.
+- Como no hay ventana, lo que pasa se anota en cuadre-receptor.log (en esta carpeta).
+- Primero haga la configuracion con "Iniciar receptor.bat" (con ventana).
+- Si mueve esta carpeta a otro lugar, vuelva a usar "Activar inicio automatico.bat".
 
 PROBLEMAS
 ---------
