@@ -106,6 +106,8 @@ private class Trabajo(
     val texto: String?,
     val imagen: Bitmap?,
     val guardarEnHistorial: Boolean = true,
+    /** Se llama cuando se imprimió bien (por ejemplo, para recordar lo escrito en la nota). */
+    val alImprimir: (() -> Unit)? = null,
 )
 
 class MainActivity : ComponentActivity() {
@@ -321,6 +323,8 @@ class MainActivity : ComponentActivity() {
                     onImprimir = { copias -> imprimirNota(plantilla, copias) },
                     onLimpiar = impresion::limpiarNota,
                     onEditarPlantilla = { ir(Screen.Editor(plantilla.id)) },
+                    sugerencias = impresion::sugerencias,
+                    onOlvidar = impresion::olvidar,
                 )
             }
             Screen.Plantillas -> PlantillasScreen(
@@ -377,6 +381,8 @@ class MainActivity : ComponentActivity() {
                     printer.savedAddress = null
                     impresoraGuardada = null
                 },
+                recuerdos = impresion.versionMemoria.let { impresion.memoria.cantidad },
+                onBorrarMemoria = impresion::borrarMemoria,
             )
         }
     }
@@ -405,6 +411,7 @@ class MainActivity : ComponentActivity() {
             Trabajo(
                 plantilla.nombre + (principal?.let { ": $it" } ?: ""),
                 TipoImpresion.NOTA, copias, EscPos.trabajo(raster, copias), null, img,
+                alImprimir = { impresion.recordarNota(plantilla, datos) },
             ),
         )
     }
@@ -467,6 +474,7 @@ class MainActivity : ComponentActivity() {
                     impresion.refrescarHistorial()
                 }
                 pendiente = null
+                t.alImprimir?.invoke()
                 if (t.copias > 1) "✓ ${t.copias} copias impresas" else "✓ Impreso"
             } catch (e: Exception) {
                 "No se pudo imprimir. Verifique que la impresora esté encendida y cerca, y toque \"Imprimir\" de nuevo."

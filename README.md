@@ -23,6 +23,9 @@ Arriba en el inicio (o en los tres puntos **⋮**) se cambia entre **modo cuadre
 - **Nota de entrega**: se llenan los campos de la plantilla (establecimiento, quien retira,
   productos con cantidades...), se ve la vista previa y al imprimir pregunta **cuántas
   copias**: imprime una, corta, imprime la otra y corta.
+- **Memoria**: al imprimir una nota se guarda lo escrito (nombres, establecimientos,
+  productos). La próxima vez, al tocar el campo o escribir unas letras ("Salen"), aparece
+  "Salentine vino tinto 750" para elegirlo. Con la ✕ se olvida uno; en Ajustes se borra todo.
 - **Plantillas**: diseño de la nota. Elementos: texto (tipo de letra, tamaño, negrita,
   cursiva, subrayado, fondo negro, alineación), campos para llenar (en línea, apilados o
   dentro de celda, con borde de línea completa, puntillos, guiones o doble), tabla de

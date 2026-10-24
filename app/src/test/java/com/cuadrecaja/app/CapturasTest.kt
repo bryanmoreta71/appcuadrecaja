@@ -145,9 +145,22 @@ class CapturasTest {
         compose.onNodeWithText("🖨️  Impresión").performClick()
         pantalla("03_inicio_impresion")
 
+        // Memoria de notas anteriores.
+        val vm = androidx.lifecycle.ViewModelProvider(compose.activity)[ImpresionViewModel::class.java]
+        compose.activity.runOnUiThread {
+            listOf("Salentine vino tinto 750", "Salentine vino blanco 750", "Agua 500 ml").forEach { vm.memoria.recordar(Memoria.claveColumna("Producto"), it) }
+            vm.memoria.recordar(Memoria.claveCampo("Nombre del que retira"), "Bernardo Guillén")
+            vm.memoria.recordar(Memoria.claveCampo("Nombre del que retira"), "Carlos Pérez")
+        }
+
         compose.onNodeWithText("Nota de entrega").performClick()
         compose.onNodeWithText("Establecimiento").performTextInput("Tienda Doña Rosa")
-        compose.onNodeWithText("Nombre del que retira").performTextInput("Carlos Pérez")
+        compose.onNodeWithText("Nombre del que retira").performTextInput("Ber")
+        pantalla("04a_memoria_nombre")
+        compose.onNodeWithText("Bernardo Guillén").performClick()
+        compose.onNodeWithText("Producto").performTextInput("salen")
+        pantalla("04b_memoria_producto")
+        compose.onNodeWithText("Salentine vino tinto 750").performClick()
         pantalla("04_nota_entrega")
         compose.onNodeWithText("👁  Ver vista previa").performScrollTo().performClick()
         compose.onNodeWithText("Ocultar vista previa").performScrollTo()

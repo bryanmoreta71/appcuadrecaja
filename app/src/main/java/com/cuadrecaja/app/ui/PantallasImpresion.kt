@@ -3,6 +3,7 @@ package com.cuadrecaja.app.ui
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -44,18 +45,22 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.cuadrecaja.app.EntradaHistorial
+import com.cuadrecaja.app.Memoria
 import com.cuadrecaja.app.Modo
 import com.cuadrecaja.app.TipoImpresion
 import com.cuadrecaja.app.impresion.Renderizador
@@ -129,6 +134,8 @@ fun NotaEntregaScreen(
     onImprimir: (Int) -> Unit,
     onLimpiar: () -> Unit,
     onEditarPlantilla: () -> Unit,
+    sugerencias: (clave: String, escrito: String) -> List<String> = { _, _ -> emptyList() },
+    onOlvidar: (clave: String, texto: String) -> Unit = { _, _ -> },
 ) {
     var verPrevia by rememberSaveable { mutableStateOf(false) }
     var pedirCopias by remember { mutableStateOf(false) }
@@ -159,13 +166,15 @@ fun NotaEntregaScreen(
             Tarjeta {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Titulo("Datos")
-                    campos.forEach { c -> CampoParaLlenar(c, datos.campos[c.id].orEmpty()) { onCampo(c.id, it) } }
+                    campos.forEach { c ->
+                        CampoParaLlenar(c, datos.campos[c.id].orEmpty(), sugerencias, onOlvidar) { onCampo(c.id, it) }
+                    }
                 }
             }
         }
 
         plantilla.tablas.forEach { t ->
-            TablaParaLlenar(t, datos.filas[t.id].orEmpty()) { onFilas(t.id, it) }
+            TablaParaLlenar(t, datos.filas[t.id].orEmpty(), sugerencias, onOlvidar) { onFilas(t.id, it) }
         }
 
         if (campos.isEmpty() && plantilla.tablas.isEmpty()) {
@@ -207,11 +216,24 @@ fun NotaEntregaScreen(
 }
 
 @Composable
-private fun CampoParaLlenar(c: Elemento.Campo, valor: String, onCambio: (String) -> Unit) {
+private fun CampoParaLlenar(
+    c: Elemento.Campo,
+    valor: String,
+    sugerencias: (String, String) -> List<String>,
+    onOlvidar: (String, String) -> Unit,
+    onCambio: (String) -> Unit,
+) {
     val automatico = c.tipo == TipoCampo.FECHA || c.tipo == TipoCampo.HORA
+    val conMemoria = !automatico && c.tipo != TipoCampo.NUMERO
+    var enfocado by remember { mutableStateOf(false) }
+    val clave = Memoria.claveCampo(c.etiqueta)
+    var texto by textoConCursor(valor)
     OutlinedTextField(
-        value = valor,
-        onValueChange = onCambio,
+        value = texto,
+        onValueChange = {
+            texto = it
+            if (it.text != valor) onCambio(it.text)
+        },
         label = { Text(if (automatico) "${c.etiqueta} (automática si se deja vacía)" else c.etiqueta) },
         placeholder = {
             Text(
@@ -226,13 +248,72 @@ private fun CampoParaLlenar(c: Elemento.Campo, valor: String, onCambio: (String)
         minLines = if (c.tipo == TipoCampo.PARRAFO) 3 else 1,
         keyboardOptions = KeyboardOptions(keyboardType = if (c.tipo == TipoCampo.NUMERO) KeyboardType.Number else KeyboardType.Text),
         shape = RoundedCornerShape(14.dp),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().onFocusChanged { enfocado = it.isFocused },
     )
+    if (conMemoria && enfocado) {
+        ListaSugerencias(sugerencias(clave, valor), onElegir = onCambio, onOlvidar = { onOlvidar(clave, it) })
+    }
+}
+
+/**
+ * Texto del campo con su cursor. Cuando el texto cambia desde afuera (al elegir una
+ * sugerencia), el cursor se pone al final para seguir escribiendo.
+ */
+@Composable
+private fun textoConCursor(valor: String): androidx.compose.runtime.MutableState<TextFieldValue> {
+    val estado = remember { mutableStateOf(TextFieldValue(valor, TextRange(valor.length))) }
+    if (estado.value.text != valor) estado.value = TextFieldValue(valor, TextRange(valor.length))
+    return estado
+}
+
+/** Lo que ya se escribió antes en este campo: se toca y se llena solo. */
+@Composable
+private fun ListaSugerencias(lista: List<String>, onElegir: (String) -> Unit, onOlvidar: (String) -> Unit) {
+    if (lista.isEmpty()) return
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(LocalPaleta.current.suave),
+    ) {
+        lista.forEach { texto ->
+            Row(
+                Modifier.fillMaxWidth().clickable { onElegir(texto) }.padding(start = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("🕘", fontSize = 15.sp)
+                Text(
+                    texto,
+                    Modifier.weight(1f).padding(horizontal = 10.dp, vertical = 12.dp),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = LocalPaleta.current.oscuro,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                IconButton(onClick = { onOlvidar(texto) }) {
+                    Icon(Icons.Filled.Close, contentDescription = "Olvidar \"$texto\"", tint = Gris, modifier = Modifier.size(18.dp))
+                }
+            }
+        }
+    }
 }
 
 @Composable
-private fun TablaParaLlenar(t: Elemento.Tabla, filas: List<List<String>>, onFilas: (List<List<String>>) -> Unit) {
+private fun TablaParaLlenar(
+    t: Elemento.Tabla,
+    filas: List<List<String>>,
+    sugerencias: (String, String) -> List<String>,
+    onOlvidar: (String, String) -> Unit,
+    onFilas: (List<List<String>>) -> Unit,
+) {
     val lista = filas.ifEmpty { listOf(t.columnas.map { "" }) }
+    // Celda donde se está escribiendo (fila, columna), para mostrar sus sugerencias.
+    var foco by remember { mutableStateOf<Pair<Int, Int>?>(null) }
+    fun cambiarCelda(i: Int, c: Int, nuevo: String) {
+        val fila = lista[i]
+        val nuevaFila = t.columnas.indices.map { if (it == c) nuevo else fila.getOrElse(it) { "" } }
+        onFilas(lista.toMutableList().also { it[i] = nuevaFila })
+    }
     Tarjeta {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -242,23 +323,38 @@ private fun TablaParaLlenar(t: Elemento.Tabla, filas: List<List<String>>, onFila
             lista.forEachIndexed { i, fila ->
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     t.columnas.forEachIndexed { c, col ->
+                        val valor = fila.getOrElse(c) { "" }
+                        var texto by textoConCursor(valor)
                         OutlinedTextField(
-                            value = fila.getOrElse(c) { "" },
-                            onValueChange = { nuevo ->
-                                val nuevaFila = t.columnas.indices.map { if (it == c) nuevo else fila.getOrElse(it) { "" } }
-                                onFilas(lista.toMutableList().also { it[i] = nuevaFila })
+                            value = texto,
+                            onValueChange = {
+                                texto = it
+                                if (it.text != valor) cambiarCelda(i, c, it.text)
                             },
                             label = { Text(col.titulo, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(keyboardType = if (col.numerica) KeyboardType.Number else KeyboardType.Text),
                             shape = RoundedCornerShape(12.dp),
                             // Las cantidades necesitan espacio para escribir aunque la columna impresa sea angosta.
-                            modifier = Modifier.weight(if (col.numerica) 1.6f else col.ancho.coerceIn(2, 4).toFloat()),
+                            modifier = Modifier
+                                .weight(if (col.numerica) 1.6f else col.ancho.coerceIn(2, 4).toFloat())
+                                .onFocusChanged { estado ->
+                                    if (estado.isFocused) foco = i to c else if (foco == i to c) foco = null
+                                },
                         )
                     }
                     IconButton(onClick = { onFilas(lista.filterIndexed { j, _ -> j != i }) }) {
                         Icon(Icons.Filled.Close, contentDescription = "Quitar producto", tint = Gris)
                     }
+                }
+                val f = foco
+                if (f != null && f.first == i && t.columnas.getOrNull(f.second)?.numerica == false) {
+                    val clave = Memoria.claveColumna(t.columnas[f.second].titulo)
+                    ListaSugerencias(
+                        sugerencias(clave, fila.getOrElse(f.second) { "" }),
+                        onElegir = { cambiarCelda(i, f.second, it) },
+                        onOlvidar = { onOlvidar(clave, it) },
+                    )
                 }
             }
             OutlinedButton(
@@ -412,6 +508,8 @@ fun AjustesScreen(
     onModo: (Modo) -> Unit,
     onPapel: (Int) -> Unit,
     onOlvidarImpresora: () -> Unit,
+    recuerdos: Int = 0,
+    onBorrarMemoria: () -> Unit = {},
 ) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -437,6 +535,29 @@ fun AjustesScreen(
                 Text(impresora ?: "Ninguna guardada todavía. Se elige al imprimir por primera vez.", style = MaterialTheme.typography.bodyLarge)
                 if (impresora != null) {
                     OutlinedButton(onClick = onOlvidarImpresora, shape = RoundedCornerShape(14.dp)) { Text("Olvidar impresora") }
+                }
+            }
+        }
+        Tarjeta {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Titulo("Memoria de las notas de entrega")
+                Text(
+                    if (recuerdos == 0) "Todavía no hay nada guardado. Se guarda lo que escribe en cada nota que imprime."
+                    else "$recuerdos textos guardados (nombres, establecimientos, productos...). Se sugieren al escribir.",
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                if (recuerdos > 0) {
+                    var confirmar by remember { mutableStateOf(false) }
+                    OutlinedButton(onClick = { confirmar = true }, shape = RoundedCornerShape(14.dp)) { Text("Borrar memoria") }
+                    if (confirmar) {
+                        AlertDialog(
+                            onDismissRequest = { confirmar = false },
+                            title = { Text("Borrar memoria") },
+                            text = { Text("¿Olvidar todos los nombres y productos guardados?") },
+                            confirmButton = { TextButton(onClick = { onBorrarMemoria(); confirmar = false }) { Text("Borrar") } },
+                            dismissButton = { TextButton(onClick = { confirmar = false }) { Text("Cancelar") } },
+                        )
+                    }
                 }
             }
         }

@@ -3,6 +3,7 @@ package com.cuadrecaja.app
 import android.app.Application
 import android.net.Uri
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -35,6 +36,31 @@ class ImpresionViewModel(app: Application) : AndroidViewModel(app) {
     val filas = mutableStateMapOf<String, List<List<String>>>()
 
     val entradas = mutableStateListOf<EntradaHistorial>().apply { addAll(historial.entradas()) }
+
+    val memoria = Memoria(java.io.File(app.filesDir, "memoria.json"))
+    /** Cambia cada vez que la memoria cambia, para que las sugerencias en pantalla se actualicen. */
+    var versionMemoria by mutableIntStateOf(0)
+        private set
+
+    fun sugerencias(clave: String, escrito: String): List<String> {
+        versionMemoria // leerla hace que la pantalla se redibuje cuando cambia
+        return memoria.sugerencias(clave, escrito)
+    }
+
+    fun olvidar(clave: String, texto: String) {
+        memoria.olvidar(clave, texto)
+        versionMemoria++
+    }
+
+    fun recordarNota(p: Plantilla, d: Datos) {
+        memoria.recordarNota(p, d)
+        versionMemoria++
+    }
+
+    fun borrarMemoria() {
+        memoria.borrarTodo()
+        versionMemoria++
+    }
 
     fun cambiarModo(m: Modo) {
         modo = m
