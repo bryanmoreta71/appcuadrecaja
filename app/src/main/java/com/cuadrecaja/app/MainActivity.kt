@@ -1,5 +1,7 @@
 package com.cuadrecaja.app
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import android.Manifest
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
@@ -50,11 +52,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -70,7 +70,7 @@ import com.cuadrecaja.app.plantillas.Plantilla
 import com.cuadrecaja.app.ui.AjustesScreen
 import com.cuadrecaja.app.ui.CountScreen
 import com.cuadrecaja.app.ui.DetalleHistorialScreen
-import com.cuadrecaja.app.ui.EditorPlantillaScreen
+import com.cuadrecaja.app.ui.EditorVisualScreen
 import com.cuadrecaja.app.ui.HistorialScreen
 import com.cuadrecaja.app.ui.HomeScreen
 import com.cuadrecaja.app.ui.InicioImpresion
@@ -339,11 +339,18 @@ class MainActivity : ComponentActivity() {
                 if (plantilla == null) {
                     LaunchedEffect(Unit) { atras() }
                 } else {
-                    EditorPlantillaScreen(
+                    EditorVisualScreen(
                         plantilla = plantilla,
+                        papelMm = impresion.papelMm,
                         onCambio = impresion::guardarPlantilla,
-                        renderizar = { p, d -> renderizar(p, d, ejemplo = true) },
+                        renderizar = { p -> renderizar(p, Datos(), ejemplo = true) },
                         guardarImagen = impresion::guardarImagen,
+                        onListo = ::atras,
+                        onLlenar = {
+                            impresion.plantillaNota = plantilla.id
+                            atras()
+                            if (screen != Screen.Nota) ir(Screen.Nota)
+                        },
                     )
                 }
             }

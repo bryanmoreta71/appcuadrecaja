@@ -26,6 +26,12 @@ Arriba en el inicio (o en los tres puntos **⋮**) se cambia entre **modo cuadre
 - **Memoria**: al imprimir una nota se guarda lo escrito (nombres, establecimientos,
   productos). La próxima vez, al tocar el campo o escribir unas letras ("Salen"), aparece
   "Salentine vino tinto 750" para elegirlo. Con la ✕ se olvida uno; en Ajustes se borra todo.
+- **Editor visual**: el ticket se ve en el centro tal como se imprime. Tocar un elemento
+  lo elige y abajo salen sus opciones (subir, bajar, duplicar, eliminar); mantenerlo
+  presionado y arrastrarlo lo mueve (arriba/abajo cambia el orden, a los lados lo alinea).
+  Abajo está el panel para agregar (Texto, QR, código de barras, imagen, tabla, campo, línea,
+  firma, título, celda, fecha, hora, párrafo, espacio). Arriba: deshacer, rehacer, nombre,
+  limpiar y el **largo del ticket** (automático o fijo en mm; el ancho lo da el papel).
 - **Plantillas**: diseño de la nota. Elementos: texto (tipo de letra, tamaño, negrita,
   cursiva, subrayado, fondo negro, alineación), campos para llenar (en línea, apilados o
   dentro de celda, con borde de línea completa, puntillos, guiones o doble), tabla de

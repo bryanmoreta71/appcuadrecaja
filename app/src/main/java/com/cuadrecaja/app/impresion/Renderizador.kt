@@ -46,7 +46,10 @@ import java.util.Locale
  */
 class Renderizador(private val context: Context) {
 
-    data class Resultado(val imagen: Bitmap, val avisos: List<String>)
+    /** Dónde quedó cada elemento en la imagen (en puntos), para tocarlo en el editor. */
+    data class Zona(val id: String, val arriba: Float, val abajo: Float)
+
+    data class Resultado(val imagen: Bitmap, val avisos: List<String>, val zonas: List<Zona> = emptyList())
 
     private var ancho = 576
     private var margen = 6
@@ -70,7 +73,9 @@ class Renderizador(private val context: Context) {
         val paraReemplazar = if (!ejemplo) datos else datos.copy(
             campos = plantilla.campos.associate { c -> c.id to (datos.campos[c.id]?.takeIf { it.isNotBlank() } ?: c.valorInicial.ifBlank { c.etiqueta }) },
         )
+        val zonas = mutableListOf<Zona>()
         for (e in plantilla.elementos) {
+            val inicio = y
             if (y > ALTO_MAXIMO - 200) {
                 avisos += "La plantilla es demasiado larga; se cortó el final."
                 break
@@ -86,12 +91,18 @@ class Renderizador(private val context: Context) {
                 is Elemento.Barras -> barras(e, reemplazarCampos(e.contenido, plantilla, paraReemplazar, extras))
                 is Elemento.Firma -> firma(e)
             }
+            zonas += Zona(e.id, inicio, y)
         }
 
-        val alto = (y + 8).toInt().coerceIn(40, ALTO_MAXIMO)
+        var alto = (y + 8).toInt().coerceIn(40, ALTO_MAXIMO)
+        if (plantilla.largoMm > 0) {
+            val fijo = (plantilla.largoMm * PUNTOS_POR_MM).coerceAtMost(ALTO_MAXIMO)
+            if (alto > fijo) avisos += "El contenido mide ${alto / PUNTOS_POR_MM} mm, más que el largo elegido (${plantilla.largoMm} mm). Se imprime completo."
+            alto = maxOf(alto, fijo)
+        }
         val recortada = Bitmap.createBitmap(lienzo, 0, 0, ancho, alto)
         if (recortada != lienzo) lienzo.recycle()
-        return Resultado(aBlancoYNegro(recortada), avisos.toList())
+        return Resultado(aBlancoYNegro(recortada), avisos.toList(), zonas)
     }
 
     // ---------- Elementos ----------
@@ -445,6 +456,8 @@ class Renderizador(private val context: Context) {
 
     companion object {
         const val ALTO_MAXIMO = 6000
+        /** 203 ppp ≈ 8 puntos por milímetro. */
+        const val PUNTOS_POR_MM = 8
 
         fun fecha(d: Date): String = SimpleDateFormat("dd/MM/yyyy", Locale.US).format(d)
         fun hora(d: Date): String = SimpleDateFormat("hh:mm a", Locale.US).format(d)

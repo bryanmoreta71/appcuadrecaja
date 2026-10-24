@@ -162,6 +162,8 @@ data class Plantilla(
     val id: String = nuevoId(),
     val nombre: String = "Nota de entrega",
     val elementos: List<Elemento> = emptyList(),
+    /** Largo del ticket en mm. 0 = automático (lo que mida el contenido). El ancho lo da el papel. */
+    val largoMm: Int = 0,
 ) {
     val campos: List<Elemento.Campo> get() = elementos.filterIsInstance<Elemento.Campo>()
     val tablas: List<Elemento.Tabla> get() = elementos.filterIsInstance<Elemento.Tabla>()
@@ -213,6 +215,7 @@ object PlantillaJson {
     fun plantilla(p: Plantilla): JSONObject = JSONObject()
         .put("id", p.id)
         .put("nombre", p.nombre)
+        .put("largoMm", p.largoMm)
         .put("elementos", JSONArray().apply { p.elementos.forEach { put(elemento(it)) } })
 
     fun plantilla(o: JSONObject): Plantilla {
@@ -221,6 +224,7 @@ object PlantillaJson {
             id = o.optString("id", nuevoId()),
             nombre = o.optString("nombre", "Plantilla"),
             elementos = (0 until arr.length()).mapNotNull { elemento(arr.getJSONObject(it)) },
+            largoMm = o.optInt("largoMm", 0).coerceIn(0, 1000),
         )
     }
 

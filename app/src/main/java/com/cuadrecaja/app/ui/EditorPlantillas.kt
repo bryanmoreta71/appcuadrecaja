@@ -1,5 +1,7 @@
 package com.cuadrecaja.app.ui
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -13,12 +15,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -26,32 +25,21 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -59,16 +47,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.cuadrecaja.app.impresion.Imagenes
-import com.cuadrecaja.app.impresion.Renderizador
 import com.cuadrecaja.app.plantillas.Alineacion
 import com.cuadrecaja.app.plantillas.Borde
 import com.cuadrecaja.app.plantillas.Columna
-import com.cuadrecaja.app.plantillas.Datos
 import com.cuadrecaja.app.plantillas.DensidadQr
 import com.cuadrecaja.app.plantillas.Elemento
 import com.cuadrecaja.app.plantillas.Estilo
@@ -138,23 +122,9 @@ fun PlantillasScreen(
     }
 }
 
-// ---------- Editor ----------
+// ---------- Opciones de cada elemento (panel de abajo del editor) ----------
 
-private data class TipoNuevo(val icono: String, val nombre: String, val crear: () -> Elemento)
-
-private val tiposNuevos = listOf(
-    TipoNuevo("🔤", "Texto") { Elemento.Texto() },
-    TipoNuevo("✍️", "Campo para llenar") { Elemento.Campo(etiqueta = "Nuevo campo") },
-    TipoNuevo("📋", "Tabla de productos") { Elemento.Tabla() },
-    TipoNuevo("➖", "Línea") { Elemento.Separador() },
-    TipoNuevo("↕️", "Espacio") { Elemento.Espacio() },
-    TipoNuevo("🖼️", "Imagen / logo") { Elemento.Imagen() },
-    TipoNuevo("🔳", "Código QR") { Elemento.Qr() },
-    TipoNuevo("▥", "Código de barras") { Elemento.Barras() },
-    TipoNuevo("🖊️", "Firma") { Elemento.Firma() },
-)
-
-private fun nombreDe(e: Elemento) = when (e) {
+internal fun nombreDe(e: Elemento) = when (e) {
     is Elemento.Texto -> "Texto"
     is Elemento.Campo -> "Campo para llenar"
     is Elemento.Tabla -> "Tabla de productos"
@@ -166,170 +136,8 @@ private fun nombreDe(e: Elemento) = when (e) {
     is Elemento.Firma -> "Firma"
 }
 
-private fun iconoDe(e: Elemento) = when (e) {
-    is Elemento.Texto -> "🔤"
-    is Elemento.Campo -> "✍️"
-    is Elemento.Tabla -> "📋"
-    is Elemento.Separador -> "➖"
-    is Elemento.Espacio -> "↕️"
-    is Elemento.Imagen -> "🖼️"
-    is Elemento.Qr -> "🔳"
-    is Elemento.Barras -> "▥"
-    is Elemento.Firma -> "🖊️"
-}
-
-private fun resumen(e: Elemento) = when (e) {
-    is Elemento.Texto -> e.texto.replace('\n', ' ')
-    is Elemento.Campo -> "${e.etiqueta} · ${e.forma.etiqueta}"
-    is Elemento.Tabla -> e.columnas.joinToString(" | ") { it.titulo } + " · ${e.borde.etiqueta}"
-    is Elemento.Separador -> "${e.borde.etiqueta} · grosor ${e.grosor}"
-    is Elemento.Espacio -> "${e.alto} puntos de alto"
-    is Elemento.Imagen -> if (e.archivo.isBlank()) "Sin imagen elegida" else "${e.anchoPorcentaje}% del ancho"
-    is Elemento.Qr -> "${e.densidad.etiqueta} · ${e.contenido}"
-    is Elemento.Barras -> "${e.tipo.etiqueta} · ${e.contenido}"
-    is Elemento.Firma -> e.etiqueta
-}
-
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun EditorPlantillaScreen(
-    plantilla: Plantilla,
-    onCambio: (Plantilla) -> Unit,
-    renderizar: (Plantilla, Datos) -> Renderizador.Resultado,
-    guardarImagen: (Uri) -> String?,
-) {
-    var pestana by rememberSaveable { mutableStateOf(0) }
-    var editando by remember { mutableStateOf<String?>(null) }
-    var agregando by remember { mutableStateOf(false) }
-
-    fun reemplazar(e: Elemento) = onCambio(plantilla.copy(elementos = plantilla.elementos.map { if (it.id == e.id) e else it }))
-    fun mover(i: Int, d: Int) {
-        val j = i + d
-        if (j !in plantilla.elementos.indices) return
-        val l = plantilla.elementos.toMutableList()
-        l[i] = l[j].also { l[j] = l[i] }
-        onCambio(plantilla.copy(elementos = l))
-    }
-
-    Column(Modifier.fillMaxSize()) {
-        TabRow(selectedTabIndex = pestana, containerColor = Color.White) {
-            Tab(selected = pestana == 0, onClick = { pestana = 0 }, text = { Text("🎨  Diseño") })
-            Tab(selected = pestana == 1, onClick = { pestana = 1 }, text = { Text("👁  Vista previa") })
-        }
-        if (pestana == 1) {
-            val resultado = remember(plantilla) { renderizar(plantilla, Datos()) }
-            Column(
-                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Text("Así sale impresa (con datos de ejemplo en las tablas).", color = Gris)
-                VistaPrevia(resultado.imagen)
-                Avisos(resultado.avisos)
-            }
-            return@Column
-        }
-        Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            OutlinedTextField(
-                value = plantilla.nombre,
-                onValueChange = { onCambio(plantilla.copy(nombre = it)) },
-                label = { Text("Nombre de la plantilla") },
-                singleLine = true,
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Titulo("Elementos (de arriba hacia abajo)")
-            plantilla.elementos.forEachIndexed { i, e ->
-                Card(
-                    onClick = { editando = e.id },
-                    shape = RoundedCornerShape(18.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color.White),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Row(Modifier.padding(start = 12.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(LocalPaleta.current.suave),
-                            contentAlignment = Alignment.Center,
-                        ) { Text(iconoDe(e), fontSize = 18.sp) }
-                        Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
-                            Text(nombreDe(e), fontWeight = FontWeight.SemiBold)
-                            Text(resumen(e), color = Gris, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                        IconButton(onClick = { mover(i, -1) }, enabled = i > 0) { Icon(Icons.Filled.KeyboardArrowUp, "Subir") }
-                        IconButton(onClick = { mover(i, 1) }, enabled = i < plantilla.elementos.lastIndex) {
-                            Icon(Icons.Filled.KeyboardArrowDown, "Bajar")
-                        }
-                        IconButton(onClick = { onCambio(plantilla.copy(elementos = plantilla.elementos.filter { it.id != e.id })) }) {
-                            Icon(Icons.Filled.Delete, "Quitar", tint = Color(0xFFB91C1C))
-                        }
-                    }
-                }
-            }
-            Spacer(Modifier.height(4.dp))
-            BotonPrincipal("+  Agregar elemento") { agregando = true }
-            Text("Los cambios se guardan solos.", color = Gris, fontSize = 13.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
-        }
-    }
-
-    if (agregando) {
-        ModalBottomSheet(onDismissRequest = { agregando = false }, containerColor = Color.White) {
-            Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 24.dp).navigationBarsPadding()) {
-                Text("Agregar elemento", style = MaterialTheme.typography.titleLarge)
-                Spacer(Modifier.height(12.dp))
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    tiposNuevos.forEach { t ->
-                        Card(
-                            onClick = {
-                                val nuevo = t.crear()
-                                onCambio(plantilla.copy(elementos = plantilla.elementos + nuevo))
-                                agregando = false
-                                editando = nuevo.id
-                            },
-                            shape = RoundedCornerShape(18.dp),
-                            colors = CardDefaults.cardColors(containerColor = LocalPaleta.current.suave),
-                            modifier = Modifier.size(width = 104.dp, height = 96.dp),
-                        ) {
-                            Column(Modifier.fillMaxSize().padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                                Text(t.icono, fontSize = 26.sp)
-                                Text(
-                                    t.nombre, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 2,
-                                    color = LocalPaleta.current.oscuro, textAlign = TextAlign.Center,
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    val enEdicion = plantilla.elementos.firstOrNull { it.id == editando }
-    if (enEdicion != null) {
-        ModalBottomSheet(
-            onDismissRequest = { editando = null },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-            containerColor = Color.White,
-        ) {
-            Column(
-                Modifier.fillMaxWidth().heightIn(max = 640.dp).verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp).padding(bottom = 24.dp).navigationBarsPadding(),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(iconoDe(enEdicion) + "  " + nombreDe(enEdicion), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-                    TextButton(onClick = { editando = null }) { Text("Listo", fontWeight = FontWeight.Bold) }
-                }
-                EditorElemento(enEdicion, plantilla, ::reemplazar, guardarImagen)
-            }
-        }
-    }
-}
-
-@Composable
-private fun EditorElemento(e: Elemento, plantilla: Plantilla, onCambio: (Elemento) -> Unit, guardarImagen: (Uri) -> String?) {
+internal fun EditorElemento(e: Elemento, plantilla: Plantilla, onCambio: (Elemento) -> Unit, guardarImagen: (Uri) -> String?) {
     when (e) {
         is Elemento.Texto -> {
             Texto("Texto", e.texto, multilinea = true) { onCambio(e.copy(texto = it)) }

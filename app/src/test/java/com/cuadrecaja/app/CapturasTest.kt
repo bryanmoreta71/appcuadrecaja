@@ -5,6 +5,10 @@ import android.graphics.Canvas
 import android.graphics.Color
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
@@ -170,14 +174,38 @@ class CapturasTest {
         compose.onNodeWithText("Cancelar").performClick()
 
         compose.onNodeWithText("Editar plantilla").performScrollTo().performClick()
+        compose.waitUntil(5000) { compose.onAllNodes(androidx.compose.ui.test.hasTestTag("lienzo")).fetchSemanticsNodes().isNotEmpty() }
         pantalla("07_editor")
-        compose.onNodeWithText("+  Agregar elemento").performScrollTo().performClick()
-        ventana("08_agregar_elemento")
+
+        // Tocar el título: se elige y abajo salen sus opciones.
+        compose.onNodeWithTag("lienzo").performTouchInput { click(androidx.compose.ui.geometry.Offset(width / 2f, 15f)) }
+        pantalla("08_editor_texto_elegido")
+        compose.onNodeWithContentDescription("Listo").performClick()
+
+        // Mantener presionado el título y arrastrarlo hacia abajo: cambia el orden.
+        val antes = vm.plantillas.first().elementos.first().id
+        compose.onNodeWithTag("lienzo").performTouchInput {
+            down(androidx.compose.ui.geometry.Offset(width / 2f, 15f))
+            advanceEventTime(1000)
+            repeat(10) { moveBy(androidx.compose.ui.geometry.Offset(0f, 40f)) }
+        }
+        pantalla("09_editor_moviendo")
+        compose.onNodeWithTag("lienzo").performTouchInput { up() }
+        compose.waitForIdle()
+        assertTrue("el título debió moverse", vm.plantillas.first().elementos.first().id != antes)
+        compose.onNodeWithContentDescription("Listo").performClick()
+
         compose.onNodeWithText("Código QR").performClick()
-        ventana("09_editar_qr")
-        compose.onNodeWithText("Listo").performClick()
-        compose.onNodeWithText("👁  Vista previa").performClick()
-        pantalla("10_editor_vista_previa")
+        compose.waitForIdle()
+        Thread.sleep(300)
+        pantalla("10_editor_qr_agregado")
+        compose.onNodeWithContentDescription("Listo").performClick()
+        compose.onNodeWithText("Papel 80 mm · largo automático").performClick()
+        ventana("10b_largo")
+        compose.onNodeWithText("150 mm").performClick()
+        compose.onNodeWithText("Aplicar").performClick()
+        assertEquals(150, vm.plantillas.first().largoMm)
+        pantalla("10c_editor_largo")
 
         compose.activity.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
         compose.activity.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
