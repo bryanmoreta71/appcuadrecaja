@@ -29,6 +29,12 @@ PREPARACION (una sola vez)
    - Sale un ticket de PRUEBA. Si salio bien, responda S.
    Esto queda guardado; las siguientes veces no pregunta nada.
 
+NOTAS DE ENTREGA
+----------------
+Las notas de entrega del modo impresion de la app tambien salen por aqui, con sus
+imagenes, QR y codigos de barras. Si piden varias copias, se corta entre cada una.
+En la app, en Ajustes, el ancho del papel debe ser el mismo que el de la impresora.
+
 USO DIARIO
 ----------
 1. Doble clic en "Iniciar receptor.bat" y deje la ventana abierta (puede minimizarla).

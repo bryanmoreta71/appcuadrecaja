@@ -132,9 +132,8 @@ class BluetoothPrinter(private val context: Context) {
     }
 
     @SuppressLint("MissingPermission")
-    suspend fun print(device: BluetoothDevice, lines: List<ReportLine>) = withContext(Dispatchers.IO) {
+    suspend fun print(device: BluetoothDevice, data: ByteArray) = withContext(Dispatchers.IO) {
         adapter?.cancelDiscovery()
-        val data = buildEscPos(lines)
         val socket = try {
             device.createRfcommSocketToServiceRecord(SPP_UUID).also { it.connect() }
         } catch (e: IOException) {
@@ -142,10 +141,18 @@ class BluetoothPrinter(private val context: Context) {
             device.createInsecureRfcommSocketToServiceRecord(SPP_UUID).also { it.connect() }
         }
         socket.use {
-            it.outputStream.write(data)
+            // En pedazos, para no llenar el búfer de las impresoras portátiles con las imágenes.
+            var i = 0
+            while (i < data.size) {
+                val n = minOf(CHUNK, data.size - i)
+                it.outputStream.write(data, i, n)
+                i += n
+                if (data.size > CHUNK) Thread.sleep(15)
+            }
             it.outputStream.flush()
-            // Dar tiempo a que la impresora reciba todo antes de cerrar la conexión.
-            Thread.sleep(800)
+            // Dar tiempo a que termine de salir todo antes de cerrar la conexión
+            // (más tiempo para las notas de entrega, que son imágenes grandes).
+            Thread.sleep((800L + data.size / 25).coerceAtMost(15_000L))
         }
         savedAddress = device.address
     }
@@ -160,6 +167,7 @@ class BluetoothPrinter(private val context: Context) {
 
     companion object {
         private const val KEY_ADDRESS = "address"
+        private const val CHUNK = 1024
         private val SPP_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
         private val PRINTER_NAME_HINTS = listOf(
             "PRINT", "POS", "PT-", "MTP", "MPT", "RPP", "BT-", "TP-", "58", "80", "THERMAL", "IMPRES",

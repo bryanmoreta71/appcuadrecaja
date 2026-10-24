@@ -99,10 +99,34 @@ public static class CuadreImpresora
         return r;
     }
 
-    // Quita los comandos ESC/POS y deja solo el texto del ticket.
-    public static string ATexto(byte[] d)
+    // Un pedazo del ticket ya interpretado: una línea de texto o una imagen.
+    private class Pieza
     {
-        StringBuilder sb = new StringBuilder();
+        public string Texto;
+        public byte[] Puntos;   // imagen en blanco y negro, 1 bit por punto, filas de AnchoBytes
+        public int AnchoBytes;
+        public int Filas;
+        public bool EsImagen { get { return Puntos != null; } }
+        public int Ancho { get { return AnchoBytes * 8; } }
+    }
+
+    private static Bitmap CrearImagen(Pieza p)
+    {
+        Bitmap img = new Bitmap(p.Ancho, p.Filas);
+        using (Graphics g = Graphics.FromImage(img)) g.Clear(Color.White);
+        for (int y = 0; y < p.Filas; y++)
+            for (int x = 0; x < p.Ancho; x++)
+                if ((p.Puntos[y * p.AnchoBytes + x / 8] & (0x80 >> (x % 8))) != 0) img.SetPixel(x, y, Color.Black);
+        return img;
+    }
+
+    // Lee los comandos ESC/POS: separa el texto, las imágenes (GS v 0, como las notas de
+    // entrega) y las páginas (cada corte GS V empieza una nueva copia).
+    private static List<List<Pieza>> Interpretar(byte[] d)
+    {
+        List<List<Pieza>> paginas = new List<List<Pieza>>();
+        List<Pieza> pagina = new List<Pieza>();
+        StringBuilder linea = new StringBuilder();
         int i = 0;
         while (i < d.Length)
         {
@@ -110,38 +134,85 @@ public static class CuadreImpresora
             if (b == 0x1b && i + 1 < d.Length)
             {
                 byte c = d[i + 1];
-                if (c == 0x40) i += 2;            // ESC @
-                else if (c == 0x64) i += 3;       // ESC d n
-                else i += 3;                       // ESC a n, ESC E n, etc.
+                if (c == 0x40) i += 2;                                  // ESC @
+                else if (c == 0x64 && i + 2 < d.Length)                 // ESC d n: n líneas en blanco
+                {
+                    if (linea.Length > 0) { Pieza p0 = new Pieza(); p0.Texto = linea.ToString(); pagina.Add(p0); linea.Length = 0; }
+                    for (int k = 0; k < d[i + 2]; k++) { Pieza p1 = new Pieza(); p1.Texto = ""; pagina.Add(p1); }
+                    i += 3;
+                }
+                else i += 3;                                            // ESC a n, ESC E n, ESC SP n...
             }
             else if (b == 0x1d && i + 1 < d.Length)
             {
                 byte c = d[i + 1];
-                if (c == 0x4c || c == 0x57) i += 4; // GS L / GS W
-                else if (c == 0x56) i += 4;          // GS V m n (corte)
-                else i += 3;                         // GS ! n, etc.
+                if (c == 0x76 && i + 7 < d.Length)                      // GS v 0 m xL xH yL yH datos
+                {
+                    int bytesFila = d[i + 4] + d[i + 5] * 256;
+                    int filas = d[i + 6] + d[i + 7] * 256;
+                    int inicio = i + 8;
+                    if (bytesFila > 0 && filas > 0 && inicio + bytesFila * filas <= d.Length)
+                    {
+                        Pieza pi = new Pieza();
+                        pi.AnchoBytes = bytesFila;
+                        pi.Filas = filas;
+                        pi.Puntos = new byte[bytesFila * filas];
+                        Array.Copy(d, inicio, pi.Puntos, 0, pi.Puntos.Length);
+                        pagina.Add(pi);
+                    }
+                    i = inicio + bytesFila * filas;
+                }
+                else if (c == 0x56)                                     // GS V m [n]: corte -> nueva página
+                {
+                    i += (i + 2 < d.Length && d[i + 2] >= 65) ? 4 : 3;
+                    if (linea.Length > 0) { Pieza p2 = new Pieza(); p2.Texto = linea.ToString(); pagina.Add(p2); linea.Length = 0; }
+                    paginas.Add(pagina);
+                    pagina = new List<Pieza>();
+                }
+                else if (c == 0x4c || c == 0x57) i += 4;                // GS L / GS W
+                else i += 3;                                            // GS ! n...
             }
             else
             {
-                if (b == 0x0a || (b >= 0x20 && b < 0x7f)) sb.Append((char)b);
+                if (b == 0x0a) { Pieza p3 = new Pieza(); p3.Texto = linea.ToString(); pagina.Add(p3); linea.Length = 0; }
+                else if (b >= 0x20 && b < 0x7f) linea.Append((char)b);
                 i++;
             }
         }
-        return sb.ToString().TrimEnd('\n') + "\n";
+        if (linea.Length > 0) { Pieza p4 = new Pieza(); p4.Texto = linea.ToString(); pagina.Add(p4); }
+        // Sin líneas en blanco al final de cada página (el avance lo pone "lineasFinal").
+        if (pagina.Count > 0) paginas.Add(pagina);
+        foreach (List<Pieza> pg in paginas)
+            while (pg.Count > 0 && !pg[pg.Count - 1].EsImagen && pg[pg.Count - 1].Texto.Trim().Length == 0) pg.RemoveAt(pg.Count - 1);
+        paginas.RemoveAll(delegate(List<Pieza> pg) { return pg.Count == 0; });
+        return paginas;
     }
 
-    // Plan B para impresoras cuyo controlador no acepta RAW: imprime el texto con el
-    // controlador de Windows, en letra de ancho fijo, sin mostrar ninguna ventana.
-    // Empieza en la esquina superior izquierda, la letra se ajusta al ancho de la tirilla y
-    // el largo de la hoja se ajusta al texto (para no gastar una hoja entera de 300 mm).
-    public static void ImprimirTexto(string impresora, string texto, float anchoMm, float margenIzqMm, float margenSupMm)
+    // Plan B para impresoras cuyo controlador no acepta RAW: imprime con el controlador de
+    // Windows, sin mostrar ninguna ventana. El texto va en letra de ancho fijo ajustada al
+    // ancho de la tirilla y las imágenes (notas de entrega) a su tamaño real (203 ppp).
+    // Cada copia es una página, así el controlador corta entre copias. El largo de la hoja
+    // se ajusta al contenido para no gastar una hoja entera de 300 mm.
+    public static void ImprimirTexto(string impresora, byte[] datos, float anchoMm, float margenIzqMm, float margenSupMm, int lineasFinal)
     {
-        string[] lineas = texto.Split('\n');
-        int siguiente = 0;
+        List<List<Pieza>> paginas = Interpretar(datos);
+        if (paginas.Count == 0) return;
         // Courier New: cada letra mide 0.6 del tamaño de la fuente. 32 letras en el ancho, con 5% de holgura.
         float puntos = (anchoMm / 25.4f) * 72f / (32f * 0.6f) * 0.95f;
-        float x = margenIzqMm / 25.4f * 100f;
+        float x0 = margenIzqMm / 25.4f * 100f;
         float y0 = margenSupMm / 25.4f * 100f;
+        float altoLinea = puntos * 1.15f / 72f * 100f;
+        float maxAnchoImagen = anchoMm / 25.4f * 100f;
+        int pagina = 0;
+
+        float largoMaximo = 0;
+        foreach (List<Pieza> pg in paginas)
+        {
+            float alto = y0 + altoLinea * (lineasFinal + 1);
+            foreach (Pieza p in pg) alto += p.EsImagen ? AltoImagen(p, maxAnchoImagen) : altoLinea;
+            largoMaximo = Math.Max(largoMaximo, alto);
+        }
+
         using (Font fuente = new Font("Courier New", puntos, FontStyle.Bold))
         using (PrintDocument doc = new PrintDocument())
         {
@@ -150,23 +221,51 @@ public static class CuadreImpresora
             doc.PrintController = new StandardPrintController();
             doc.OriginAtMargins = false;
             doc.DefaultPageSettings.Margins = new Margins(0, 0, 0, 0);
-            float altoLinea = puntos * 1.15f / 72f * 100f;
-            int largo = (int)(y0 + altoLinea * (lineas.Length + 1) + 20);
-            doc.DefaultPageSettings.PaperSize = new PaperSize("Ticket", (int)(anchoMm / 25.4f * 100f), Math.Max(largo, 100));
+            doc.DefaultPageSettings.PaperSize = new PaperSize("Ticket", (int)(anchoMm / 25.4f * 100f), Math.Max((int)largoMaximo + 20, 100));
             doc.PrintPage += delegate(object s, PrintPageEventArgs e)
             {
                 float y = y0;
-                float alto = fuente.GetHeight(e.Graphics);
-                while (siguiente < lineas.Length && y + alto <= e.PageBounds.Height)
+                foreach (Pieza p in paginas[pagina])
                 {
-                    e.Graphics.DrawString(lineas[siguiente], fuente, Brushes.Black, x, y);
-                    y += alto;
-                    siguiente++;
+                    if (p.EsImagen)
+                    {
+                        float w = Math.Min(p.Ancho / 203f * 100f, maxAnchoImagen);
+                        float h = AltoImagen(p, maxAnchoImagen);
+                        e.Graphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.NearestNeighbor;
+                        using (Bitmap img = CrearImagen(p)) e.Graphics.DrawImage(img, x0, y, w, h);
+                        y += h;
+                    }
+                    else
+                    {
+                        e.Graphics.DrawString(p.Texto, fuente, Brushes.Black, x0, y);
+                        y += altoLinea;
+                    }
                 }
-                e.HasMorePages = siguiente < lineas.Length;
+                // El punto final obliga al controlador a no recortar el papel en blanco del final.
+                e.Graphics.DrawString(".", fuente, Brushes.Black, x0, y + altoLinea * lineasFinal);
+                pagina++;
+                e.HasMorePages = pagina < paginas.Count;
             };
             doc.Print();
         }
+    }
+
+    private static float AltoImagen(Pieza p, float maxAncho)
+    {
+        float w = Math.Min(p.Ancho / 203f * 100f, maxAncho);
+        return p.Filas * w / p.Ancho;
+    }
+
+    // Solo el texto del ticket, sin comandos (para revisar en pruebas).
+    public static string ATexto(byte[] d)
+    {
+        StringBuilder sb = new StringBuilder();
+        foreach (List<Pieza> pg in Interpretar(d))
+        {
+            foreach (Pieza p in pg) sb.Append(p.EsImagen ? "[imagen " + p.Ancho + "x" + p.Filas + "]" : p.Texto).Append('\n');
+            sb.Append("--- corte ---\n");
+        }
+        return sb.ToString();
     }
 }
 '@
@@ -257,13 +356,12 @@ function Get-Ajuste($config, $nombre, $porDefecto) {
 function Send-Ticket($config, [byte[]]$datos) {
     $lineas = [Math]::Max(0, [Math]::Min(30, (Get-LineasFinal $config)))
     if ($config.modo -eq 'texto') {
-        # El punto final obliga al controlador a no recortar las líneas en blanco.
-        $texto = [CuadreImpresora]::ATexto($datos) + ("`n" * $lineas) + "."
         $ancho = if ([int]$config.papelMm -eq 58) { 48 } else { 72 }
-        [CuadreImpresora]::ImprimirTexto($config.impresora, $texto,
+        [CuadreImpresora]::ImprimirTexto($config.impresora, $datos,
             [float](Get-Ajuste $config 'anchoImpresionMm' $ancho),
             [float](Get-Ajuste $config 'margenIzqMm' 0),
-            [float](Get-Ajuste $config 'margenSupMm' 0))
+            [float](Get-Ajuste $config 'margenSupMm' 0),
+            $lineas)
     } else {
         $margen = [int]([double](Get-Ajuste $config 'margenIzqMm' 0) * 8)  # 8 puntos por mm
         $datos = [CuadreImpresora]::AjustarAncho($datos, [int]$config.papelMm, $margen)

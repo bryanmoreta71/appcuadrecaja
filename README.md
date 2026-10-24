@@ -15,6 +15,27 @@ contada y el **TOTAL EN CAJA**.
 
 Lo contado se guarda aunque se cierre la app. Para un conteo nuevo toque **Empezar de nuevo**.
 
+## Modo impresión
+
+Arriba en el inicio (o en los tres puntos **⋮**) se cambia entre **modo cuadre** (verde) y
+**modo impresión** (índigo). En los tres puntos también están:
+
+- **Nota de entrega**: se llenan los campos de la plantilla (establecimiento, quien retira,
+  productos con cantidades...), se ve la vista previa y al imprimir pregunta **cuántas
+  copias**: imprime una, corta, imprime la otra y corta.
+- **Plantillas**: diseño de la nota. Elementos: texto (tipo de letra, tamaño, negrita,
+  cursiva, subrayado, fondo negro, alineación), campos para llenar (en línea, apilados o
+  dentro de celda, con borde de línea completa, puntillos, guiones o doble), tabla de
+  productos (columnas, tipo de celdas, total, filas vacías), líneas, espacios, imágenes o
+  logos, **código QR** (ligero, sencillo o espeso; cuadros o puntos) y **código de barras**
+  (Code 128, Code 39, Code 93, EAN-13, EAN-8, UPC-A, ITF, Codabar) y firma. En textos, QR y
+  códigos se puede usar `{Nombre del campo}`, `{fecha}` y `{hora}`.
+- **Historial**: los últimos 5 tickets impresos, para verlos o reimprimirlos.
+- **Ajustes**: ancho del papel (80 o 58 mm) e impresora guardada.
+
+La nota se dibuja como imagen del ancho del papel, así que se imprime igual que la vista
+previa.
+
 ## Impresora
 
 - Funciona con impresoras térmicas portátiles Bluetooth que usan ESC/POS (PT-210, MTP-II,
@@ -40,4 +61,5 @@ Los pasos están en [`windows/LEAME.txt`](windows/LEAME.txt).
 - `./gradlew assembleDebug` → `app/build/outputs/apk/debug/app-debug.apk`
 - Cada push a GitHub compila el APK en *Actions → Compilar APK → Artifacts*.
 
-Pruebas: `./gradlew testDebugUnitTest`
+Pruebas: `./gradlew testDebugUnitTest` (incluye pruebas con Robolectric que guardan imágenes
+de las pantallas y de los tickets en `build/capturas/`).

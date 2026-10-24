@@ -7,25 +7,29 @@ import android.bluetooth.BluetoothClass
 import android.bluetooth.BluetoothDevice
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
@@ -33,21 +37,23 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.lightColorScheme
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -57,11 +63,23 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
+import com.cuadrecaja.app.impresion.EscPos
+import com.cuadrecaja.app.impresion.Renderizador
+import com.cuadrecaja.app.plantillas.Datos
+import com.cuadrecaja.app.plantillas.Plantilla
+import com.cuadrecaja.app.ui.AjustesScreen
 import com.cuadrecaja.app.ui.CountScreen
-import com.cuadrecaja.app.ui.Green
+import com.cuadrecaja.app.ui.DetalleHistorialScreen
+import com.cuadrecaja.app.ui.EditorPlantillaScreen
+import com.cuadrecaja.app.ui.HistorialScreen
 import com.cuadrecaja.app.ui.HomeScreen
+import com.cuadrecaja.app.ui.InicioImpresion
 import com.cuadrecaja.app.ui.MessageScreen
+import com.cuadrecaja.app.ui.NotaEntregaScreen
+import com.cuadrecaja.app.ui.PlantillasScreen
 import com.cuadrecaja.app.ui.ReportScreen
+import com.cuadrecaja.app.ui.theme.LocalPaleta
+import com.cuadrecaja.app.ui.theme.TemaApp
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.util.Date
@@ -71,16 +89,37 @@ private sealed interface Screen {
     data class Count(val kind: Kind) : Screen
     data class Report(val lines: List<ReportLine>) : Screen
     data object Message : Screen
+    data object Nota : Screen
+    data object Plantillas : Screen
+    data class Editor(val id: String) : Screen
+    data object Historial : Screen
+    data class DetalleHistorial(val id: String) : Screen
+    data object Ajustes : Screen
 }
+
+/** Lo que se va a mandar a la impresora, sea cuadre, mensaje, nota o reimpresión. */
+private class Trabajo(
+    val titulo: String,
+    val tipo: TipoImpresion,
+    val copias: Int,
+    val datos: ByteArray,
+    val texto: String?,
+    val imagen: Bitmap?,
+    val guardarEnHistorial: Boolean = true,
+)
 
 class MainActivity : ComponentActivity() {
 
     private val viewModel: CashViewModel by viewModels()
+    private val impresion: ImpresionViewModel by viewModels()
     private lateinit var printer: BluetoothPrinter
 
-    private var screen by mutableStateOf<Screen>(Screen.Home)
+    private val pila = mutableStateListOf<Screen>(Screen.Home)
+    private val screen: Screen get() = pila.last()
+
     private var printStatus by mutableStateOf("")
     private var printing by mutableStateOf(false)
+    private var pendiente: Trabajo? = null
     private var pickerDevices by mutableStateOf<List<BluetoothDevice>?>(null)
     private var confirmReset by mutableStateOf(false)
     private var menuOpen by mutableStateOf(false)
@@ -88,10 +127,11 @@ class MainActivity : ComponentActivity() {
     private val foundDevices = mutableStateListOf<BluetoothDevice>()
     private var scanning by mutableStateOf(false)
     private var scanJob: Job? = null
+    private var impresoraGuardada by mutableStateOf<String?>(null)
 
     private val permissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted) printCurrentReport()
+            if (granted) continuarImpresion()
             else printStatus = "Se necesita permiso de Bluetooth para imprimir."
         }
 
@@ -103,86 +143,46 @@ class MainActivity : ComponentActivity() {
 
     private val enableBluetoothLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-            if (printer.isEnabled) printCurrentReport()
+            if (printer.isEnabled) continuarImpresion()
             else printStatus = "Encienda el Bluetooth para imprimir."
         }
 
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge(statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT))
         super.onCreate(savedInstanceState)
         printer = BluetoothPrinter(this)
+        impresoraGuardada = nombreImpresoraGuardada()
 
         setContent {
-            MaterialTheme(colorScheme = lightColorScheme(primary = Green, secondaryContainer = Color(0xFFE3EEE8))) {
+            TemaApp(impresion.modo) {
                 val current = screen
-                BackHandler(enabled = current != Screen.Home) { screen = Screen.Home }
+                BackHandler(enabled = pila.size > 1) { atras() }
 
                 Scaffold(
-                    containerColor = Color(0xFFF3F5F4),
+                    containerColor = MaterialTheme.colorScheme.background,
                     topBar = {
                         TopAppBar(
-                            title = { Text(titleFor(current), fontSize = 22.sp) },
+                            title = { Text(titleFor(current), fontSize = 22.sp, fontWeight = FontWeight.SemiBold) },
                             navigationIcon = {
-                                if (current != Screen.Home) {
-                                    IconButton(onClick = { screen = Screen.Home }) {
+                                if (pila.size > 1) {
+                                    IconButton(onClick = ::atras) {
                                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Volver")
                                     }
                                 }
                             },
                             colors = TopAppBarDefaults.topAppBarColors(
-                                containerColor = Green,
+                                containerColor = LocalPaleta.current.principal,
                                 titleContentColor = Color.White,
                                 navigationIconContentColor = Color.White,
                                 actionIconContentColor = Color.White,
                             ),
-                            actions = {
-                                if (current != Screen.Message) {
-                                    IconButton(onClick = { menuOpen = true }) {
-                                        Icon(Icons.Filled.MoreVert, contentDescription = "Más opciones")
-                                    }
-                                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                                        DropdownMenuItem(
-                                            text = { Text("Imprimir mensaje", fontSize = 18.sp) },
-                                            onClick = {
-                                                menuOpen = false
-                                                printStatus = ""
-                                                screen = Screen.Message
-                                            },
-                                        )
-                                    }
-                                }
-                            },
+                            actions = { MenuOpciones() },
                         )
                     },
                 ) { padding ->
-                    Column(Modifier.padding(padding).fillMaxSize()) {
-                        when (current) {
-                            Screen.Home -> HomeScreen(
-                                counts = viewModel.counts,
-                                onOpen = { screen = Screen.Count(it) },
-                                onCuadrar = ::openReport,
-                                onReset = { confirmReset = true },
-                            )
-                            is Screen.Count -> CountScreen(current.kind, viewModel.counts, viewModel::setCount)
-                            is Screen.Report -> ReportScreen(
-                                reportText = reportToText(current.lines),
-                                status = printStatus,
-                                printing = printing,
-                                onPrint = ::printCurrentReport,
-                                onChangePrinter = {
-                                    printer.savedAddress = null
-                                    if (hasBluetoothPermission()) pickerDevices = printer.pairedDevices()
-                                    else printCurrentReport()
-                                },
-                            )
-                            Screen.Message -> MessageScreen(
-                                text = messageText,
-                                onTextChange = { messageText = it },
-                                status = printStatus,
-                                printing = printing,
-                                onPrint = ::printCurrentReport,
-                            )
-                        }
+                    Column(Modifier.padding(padding).fillMaxSize().imePadding()) {
+                        Contenido(current)
                     }
                 }
 
@@ -193,35 +193,237 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // ---------- Navegación ----------
+
+    private fun ir(s: Screen) {
+        printStatus = ""
+        pila += s
+    }
+
+    private fun atras() {
+        if (pila.size > 1) pila.removeAt(pila.lastIndex)
+        printStatus = ""
+    }
+
+    private fun cambiarModo(m: Modo) {
+        impresion.cambiarModo(m)
+        pila.clear()
+        pila += Screen.Home
+        printStatus = ""
+    }
+
     private fun titleFor(screen: Screen) = when (screen) {
-        Screen.Home -> "Cuadre de Caja"
+        Screen.Home -> if (impresion.modo == Modo.CUADRE) "Cuadre de Caja" else "Impresión"
         is Screen.Count -> screen.kind.title
         is Screen.Report -> "Reporte"
         Screen.Message -> "Mensaje"
+        Screen.Nota -> "Nota de entrega"
+        Screen.Plantillas -> "Plantillas"
+        is Screen.Editor -> "Editar plantilla"
+        Screen.Historial -> "Historial"
+        is Screen.DetalleHistorial -> "Ticket impreso"
+        Screen.Ajustes -> "Ajustes"
     }
 
-    /** Lo que hay que imprimir en la pantalla actual: el cuadre o el mensaje. */
-    private fun linesToPrint(): List<ReportLine>? = when (val s = screen) {
-        is Screen.Report -> s.lines
-        Screen.Message -> messageText.takeIf { it.isNotBlank() }?.let { buildMessage(it, Date()) }
-        else -> null
+    @Composable
+    private fun OpcionMenu(texto: String, accion: () -> Unit) {
+        DropdownMenuItem(
+            text = { Text(texto, fontSize = 17.sp) },
+            onClick = {
+                menuOpen = false
+                accion()
+            },
+        )
     }
+
+    @Composable
+    private fun MenuOpciones() {
+        IconButton(onClick = { menuOpen = true }) {
+            Icon(Icons.Filled.MoreVert, contentDescription = "Más opciones")
+        }
+        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+            OpcionMenu("📦   Nota de entrega") { ir(Screen.Nota) }
+            OpcionMenu("✉️   Imprimir mensaje") { ir(Screen.Message) }
+            OpcionMenu("🎨   Plantillas") { ir(Screen.Plantillas) }
+            OpcionMenu("🕘   Historial") { ir(Screen.Historial) }
+            OpcionMenu("⚙️   Ajustes") { ir(Screen.Ajustes) }
+            HorizontalDivider()
+            if (impresion.modo == Modo.CUADRE) {
+                OpcionMenu("🖨️   Cambiar a modo impresión") { cambiarModo(Modo.IMPRESION) }
+            } else {
+                OpcionMenu("💵   Cambiar a modo cuadre") { cambiarModo(Modo.CUADRE) }
+            }
+        }
+    }
+
+    @Composable
+    private fun Contenido(current: Screen) {
+        when (current) {
+            Screen.Home -> if (impresion.modo == Modo.CUADRE) {
+                HomeScreen(
+                    counts = viewModel.counts,
+                    onCambiarModo = ::cambiarModo,
+                    onOpen = { ir(Screen.Count(it)) },
+                    onCuadrar = ::openReport,
+                    onReset = { confirmReset = true },
+                )
+            } else {
+                InicioImpresion(
+                    entradas = impresion.entradas,
+                    onCambiarModo = ::cambiarModo,
+                    onNota = { ir(Screen.Nota) },
+                    onMensaje = { ir(Screen.Message) },
+                    onPlantillas = { ir(Screen.Plantillas) },
+                    onHistorial = { ir(Screen.Historial) },
+                    onAbrirEntrada = { ir(Screen.DetalleHistorial(it.id)) },
+                )
+            }
+            is Screen.Count -> CountScreen(current.kind, viewModel.counts, viewModel::setCount)
+            is Screen.Report -> ReportScreen(
+                reportText = reportToText(current.lines),
+                status = printStatus,
+                printing = printing,
+                onPrint = { imprimir(trabajoCuadre(current.lines)) },
+                onChangePrinter = {
+                    printer.savedAddress = null
+                    impresoraGuardada = null
+                    pendiente = trabajoCuadre(current.lines)
+                    if (hasBluetoothPermission()) pickerDevices = printer.pairedDevices() else continuarImpresion()
+                },
+            )
+            Screen.Message -> MessageScreen(
+                text = messageText,
+                onTextChange = { messageText = it },
+                status = printStatus,
+                printing = printing,
+                onPrint = {
+                    val lines = buildMessage(messageText, Date())
+                    imprimir(
+                        Trabajo(
+                            "Mensaje: " + messageText.trim().lineSequence().first().take(30),
+                            TipoImpresion.MENSAJE, 1, BluetoothPrinter.buildEscPos(lines), reportToText(lines), null,
+                        ),
+                    )
+                },
+            )
+            Screen.Nota -> {
+                val plantilla = impresion.plantilla(impresion.plantillaNota) ?: impresion.plantillas.first()
+                NotaEntregaScreen(
+                    plantillas = impresion.plantillas,
+                    plantilla = plantilla,
+                    datos = impresion.datos(),
+                    onElegirPlantilla = { impresion.plantillaNota = it },
+                    onCampo = { id, v -> impresion.campos[id] = v },
+                    onFilas = { id, filas -> impresion.filas[id] = filas },
+                    renderizar = { p, d -> renderizar(p, d) },
+                    status = printStatus,
+                    printing = printing,
+                    onImprimir = { copias -> imprimirNota(plantilla, copias) },
+                    onLimpiar = impresion::limpiarNota,
+                    onEditarPlantilla = { ir(Screen.Editor(plantilla.id)) },
+                )
+            }
+            Screen.Plantillas -> PlantillasScreen(
+                plantillas = impresion.plantillas,
+                onEditar = { ir(Screen.Editor(it.id)) },
+                onNueva = { ir(Screen.Editor(impresion.nuevaPlantilla().id)) },
+                onDuplicar = impresion::duplicar,
+                onEliminar = impresion::eliminar,
+            )
+            is Screen.Editor -> {
+                val plantilla = impresion.plantilla(current.id)
+                if (plantilla == null) {
+                    LaunchedEffect(Unit) { atras() }
+                } else {
+                    EditorPlantillaScreen(
+                        plantilla = plantilla,
+                        onCambio = impresion::guardarPlantilla,
+                        renderizar = { p, d -> renderizar(p, d, ejemplo = true) },
+                        guardarImagen = impresion::guardarImagen,
+                    )
+                }
+            }
+            Screen.Historial -> HistorialScreen(impresion.entradas) { ir(Screen.DetalleHistorial(it.id)) }
+            is Screen.DetalleHistorial -> {
+                val entrada = impresion.entradas.firstOrNull { it.id == current.id }
+                if (entrada == null) {
+                    LaunchedEffect(Unit) { atras() }
+                } else {
+                    val imagen = remember(entrada.id) { impresion.historial.imagen(entrada.id) }
+                    DetalleHistorialScreen(
+                        entrada = entrada,
+                        imagen = imagen,
+                        status = printStatus,
+                        printing = printing,
+                        onReimprimir = {
+                            val datos = impresion.historial.datos(entrada.id)
+                            if (datos == null) printStatus = "No se encontró el ticket guardado."
+                            else imprimir(Trabajo(entrada.titulo, entrada.tipo, entrada.copias, datos, null, null, guardarEnHistorial = false))
+                        },
+                        onEliminar = {
+                            impresion.historial.borrar(entrada.id)
+                            impresion.refrescarHistorial()
+                        },
+                    )
+                }
+            }
+            Screen.Ajustes -> AjustesScreen(
+                modo = impresion.modo,
+                papelMm = impresion.papelMm,
+                impresora = impresoraGuardada,
+                onModo = ::cambiarModo,
+                onPapel = impresion::cambiarPapel,
+                onOlvidarImpresora = {
+                    printer.savedAddress = null
+                    impresoraGuardada = null
+                },
+            )
+        }
+    }
+
+    // ---------- Armar trabajos ----------
+
+    private fun renderizar(p: Plantilla, d: Datos, ejemplo: Boolean = false): Renderizador.Resultado =
+        Renderizador(this).dibujar(p, d, if (impresion.papelMm == 58) 384 else 576, Date(), ejemplo)
+
+    private fun trabajoCuadre(lines: List<ReportLine>) =
+        Trabajo("Cuadre de caja", TipoImpresion.CUADRE, 1, BluetoothPrinter.buildEscPos(lines), reportToText(lines), null)
 
     /** "Cuadrar caja": arma el reporte con fecha y hora actuales y lo manda a imprimir. */
     private fun openReport() {
-        printStatus = ""
-        screen = Screen.Report(buildReport(viewModel.counts.toMap(), Date()))
-        printCurrentReport()
+        val lines = buildReport(viewModel.counts.toMap(), Date())
+        ir(Screen.Report(lines))
+        imprimir(trabajoCuadre(lines))
     }
+
+    private fun imprimirNota(plantilla: Plantilla, copias: Int) {
+        val datos = impresion.datos()
+        val img = renderizar(plantilla, datos).imagen
+        val raster = EscPos.imagen(img.width, img.height, Renderizador.puntosNegros(img))
+        val principal = plantilla.campos.map { datos.campos[it.id].orEmpty() }.firstOrNull { it.isNotBlank() }
+        imprimir(
+            Trabajo(
+                plantilla.nombre + (principal?.let { ": $it" } ?: ""),
+                TipoImpresion.NOTA, copias, EscPos.trabajo(raster, copias), null, img,
+            ),
+        )
+    }
+
+    // ---------- Impresión ----------
 
     private fun hasBluetoothPermission() =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
             ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
 
-    private fun printCurrentReport() {
-        val lines = linesToPrint() ?: return
+    private fun imprimir(t: Trabajo) {
         if (printing) return
+        pendiente = t
+        continuarImpresion()
+    }
 
+    /** Revisa permiso, Bluetooth encendido e impresora; luego imprime lo pendiente. */
+    private fun continuarImpresion() {
+        if (pendiente == null || printing) return
         if (!printer.isSupported) {
             printStatus = "Este teléfono no tiene Bluetooth."
             return
@@ -234,24 +436,38 @@ class MainActivity : ComponentActivity() {
             enableBluetoothLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
             return
         }
-
         val device = printer.findPrinter()
         if (device == null) {
             pickerDevices = printer.pairedDevices()
             startScan()
             return
         }
-        print(device, lines)
+        print(device)
     }
 
     @SuppressLint("MissingPermission")
-    private fun print(device: BluetoothDevice, lines: List<ReportLine>) {
+    private fun nombreImpresoraGuardada(): String? {
+        val address = printer.savedAddress ?: return null
+        if (!hasBluetoothPermission()) return address
+        return printer.pairedDevices().firstOrNull { it.address == address }?.name ?: address
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun print(device: BluetoothDevice) {
+        val t = pendiente ?: return
         printing = true
-        printStatus = "Imprimiendo en ${device.name ?: device.address}…"
+        val nombre = device.name ?: device.address
+        printStatus = if (t.copias > 1) "Imprimiendo ${t.copias} copias en $nombre…" else "Imprimiendo en $nombre…"
         lifecycleScope.launch {
             printStatus = try {
-                printer.print(device, lines)
-                "✓ Impreso"
+                printer.print(device, t.datos)
+                impresoraGuardada = nombre
+                if (t.guardarEnHistorial) {
+                    impresion.historial.agregar(t.titulo, t.tipo, t.copias, t.datos, t.texto, t.imagen)
+                    impresion.refrescarHistorial()
+                }
+                pendiente = null
+                if (t.copias > 1) "✓ ${t.copias} copias impresas" else "✓ Impreso"
             } catch (e: Exception) {
                 "No se pudo imprimir. Verifique que la impresora esté encendida y cerca, y toque \"Imprimir\" de nuevo."
             }
@@ -306,12 +522,12 @@ class MainActivity : ComponentActivity() {
                 printStatus = "No se pudo emparejar. Apague y encienda la impresora e intente de nuevo."
                 return@launch
             }
-            linesToPrint()?.let { print(device, it) }
+            print(device)
         }
     }
 
     @SuppressLint("MissingPermission")
-    @androidx.compose.runtime.Composable
+    @Composable
     private fun PrinterPicker(devices: List<BluetoothDevice>) {
         AlertDialog(
             onDismissRequest = { pickerDevices = null },
@@ -323,7 +539,7 @@ class MainActivity : ComponentActivity() {
                         for (d in devices) {
                             DeviceRow(d) {
                                 pickerDevices = null
-                                linesToPrint()?.let { print(d, it) }
+                                print(d)
                             }
                         }
                         Spacer(Modifier.height(12.dp))
@@ -357,7 +573,7 @@ class MainActivity : ComponentActivity() {
     }
 
     @SuppressLint("MissingPermission")
-    @androidx.compose.runtime.Composable
+    @Composable
     private fun DeviceRow(device: BluetoothDevice, onClick: () -> Unit) {
         val marker = when {
             device.bluetoothClass?.majorDeviceClass == BluetoothClass.Device.Major.COMPUTER -> "💻 "
@@ -374,7 +590,7 @@ class MainActivity : ComponentActivity() {
         )
     }
 
-    @androidx.compose.runtime.Composable
+    @Composable
     private fun ResetDialog() {
         AlertDialog(
             onDismissRequest = { confirmReset = false },

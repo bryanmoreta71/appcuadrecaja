@@ -1,5 +1,5 @@
 <resources>
     <style name="Theme.CuadreCaja" parent="android:Theme.Material.Light.NoActionBar">
-        <item name="android:statusBarColor">#0A5C37</item>
+        <item name="android:windowBackground">@android:color/white</item>
     </style>
 </resources>
