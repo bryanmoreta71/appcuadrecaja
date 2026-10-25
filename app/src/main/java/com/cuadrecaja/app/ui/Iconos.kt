@@ -20,7 +20,7 @@ import androidx.compose.ui.unit.dp
 /** Íconos de línea para el editor (dibujados, sin depender de fuentes de emoji). */
 enum class Icono {
     TEXTO, TITULO, CAMPO, CELDA, PARRAFO, TABLA, LINEA, ESPACIO, IMAGEN, QR, BARRAS, FIRMA, FECHA, HORA,
-    DESHACER, REHACER, LIMPIAR, COPIAR, SUBIR, BAJAR, BORRAR, CERRAR, PAPEL,
+    DESHACER, REHACER, LIMPIAR, COPIAR, SUBIR, BAJAR, BORRAR, CERRAR, PAPEL, IMPRESORA, LAPIZ,
 }
 
 @Composable
@@ -93,6 +93,16 @@ fun IconoLinea(icono: Icono, color: Color, modifier: Modifier = Modifier, tamano
             Icono.BAJAR -> { linea(12f, 4f, 12f, 19f); camino(6f to 13f, 12f to 19f, 18f to 13f) }
             Icono.BORRAR -> { linea(4f, 6.5f, 20f, 6.5f); camino(9f to 6.5f, 9.5f to 3.5f, 14.5f to 3.5f, 15f to 6.5f); camino(6f to 6.5f, 7f to 20.5f, 17f to 20.5f, 18f to 6.5f); linea(10.5f, 10f, 10.5f, 17f); linea(13.5f, 10f, 13.5f, 17f) }
             Icono.CERRAR -> { linea(6f, 6f, 18f, 18f); linea(18f, 6f, 6f, 18f) }
+            Icono.IMPRESORA -> {
+                camino(7f to 9f, 7f to 3f, 17f to 3f, 17f to 9f)
+                caja(3f, 9f, 18f, 8f, 2f)
+                caja(7f, 14f, 10f, 7f, 1f)
+                lleno(17f, 11.5f, 1.8f, 1.5f)
+            }
+            Icono.LAPIZ -> {
+                camino(4f to 20f, 5f to 15.5f, 15.5f to 5f, 19f to 8.5f, 8.5f to 19f, 4f to 20f)
+                linea(13f, 7.5f, 16.5f, 11f)
+            }
             Icono.PAPEL -> { camino(6f to 2.5f, 18f to 2.5f, 18f to 21.5f, 15f to 19.5f, 12f to 21.5f, 9f to 19.5f, 6f to 21.5f, 6f to 2.5f); linea(9f, 8f, 15f, 8f); linea(9f, 12f, 15f, 12f) }
         }
     }

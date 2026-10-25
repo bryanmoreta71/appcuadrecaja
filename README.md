@@ -20,11 +20,12 @@ Lo contado se guarda aunque se cierre la app. Para un conteo nuevo toque **Empez
 Arriba en el inicio (o en los tres puntos **⋮**) se cambia entre **modo cuadre** (verde) y
 **modo impresión** (índigo). En los tres puntos también están:
 
-- **Nota de entrega**: se llenan los campos de la plantilla (establecimiento, quien retira,
+- **Nota de entrega**: se ve el ticket tal como sale impreso y se toca cada campo para
+  llenarlo ahí mismo; se llenan los campos de la plantilla (establecimiento, quien retira,
   productos con cantidades...), se ve la vista previa y al imprimir pregunta **cuántas
   copias**: imprime una, corta, imprime la otra y corta.
 - **Memoria**: al imprimir una nota se guarda lo escrito (nombres, establecimientos,
-  productos). La próxima vez, al tocar el campo o escribir unas letras ("Salen"), aparece
+  productos). La próxima vez, al escribir unas letras ("Salen"), aparece solo lo que coincide,
   "Salentine vino tinto 750" para elegirlo. Con la ✕ se olvida uno; en Ajustes se borra todo.
 - **Editor visual**: el ticket se ve en el centro tal como se imprime. Tocar un elemento
   lo elige y abajo salen sus opciones (subir, bajar, duplicar, eliminar); mantenerlo

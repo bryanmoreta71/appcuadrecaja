@@ -5,13 +5,10 @@ import androidx.compose.runtime.setValue
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,40 +18,27 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -63,12 +47,6 @@ import com.cuadrecaja.app.EntradaHistorial
 import com.cuadrecaja.app.Memoria
 import com.cuadrecaja.app.Modo
 import com.cuadrecaja.app.TipoImpresion
-import com.cuadrecaja.app.impresion.Renderizador
-import com.cuadrecaja.app.plantillas.Datos
-import com.cuadrecaja.app.plantillas.Elemento
-import com.cuadrecaja.app.plantillas.Plantilla
-import com.cuadrecaja.app.plantillas.TipoCampo
-import com.cuadrecaja.app.plantillas.totalTabla
 import com.cuadrecaja.app.ui.theme.LocalPaleta
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -113,255 +91,6 @@ fun InicioImpresion(
         if (entradas.isNotEmpty()) {
             Titulo("Impreso recientemente")
             entradas.take(3).forEach { FilaHistorial(it) { onAbrirEntrada(it) } }
-        }
-    }
-}
-
-// ---------- Nota de entrega ----------
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-fun NotaEntregaScreen(
-    plantillas: List<Plantilla>,
-    plantilla: Plantilla,
-    datos: Datos,
-    onElegirPlantilla: (String) -> Unit,
-    onCampo: (String, String) -> Unit,
-    onFilas: (String, List<List<String>>) -> Unit,
-    renderizar: (Plantilla, Datos) -> Renderizador.Resultado,
-    status: String,
-    printing: Boolean,
-    onImprimir: (Int) -> Unit,
-    onLimpiar: () -> Unit,
-    onEditarPlantilla: () -> Unit,
-    sugerencias: (clave: String, escrito: String) -> List<String> = { _, _ -> emptyList() },
-    onOlvidar: (clave: String, texto: String) -> Unit = { _, _ -> },
-) {
-    var verPrevia by rememberSaveable { mutableStateOf(false) }
-    var pedirCopias by remember { mutableStateOf(false) }
-
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        if (plantillas.size > 1) {
-            Titulo("Plantilla")
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                plantillas.forEach { p ->
-                    FilterChip(
-                        selected = p.id == plantilla.id,
-                        onClick = { onElegirPlantilla(p.id) },
-                        label = { Text(p.nombre) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = LocalPaleta.current.principal,
-                            selectedLabelColor = Color.White,
-                        ),
-                    )
-                }
-            }
-        }
-
-        val campos = plantilla.campos
-        if (campos.isNotEmpty()) {
-            Tarjeta {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Titulo("Datos")
-                    campos.forEach { c ->
-                        CampoParaLlenar(c, datos.campos[c.id].orEmpty(), sugerencias, onOlvidar) { onCampo(c.id, it) }
-                    }
-                }
-            }
-        }
-
-        plantilla.tablas.forEach { t ->
-            TablaParaLlenar(t, datos.filas[t.id].orEmpty(), sugerencias, onOlvidar) { onFilas(t.id, it) }
-        }
-
-        if (campos.isEmpty() && plantilla.tablas.isEmpty()) {
-            Tarjeta {
-                Text(
-                    "Esta plantilla no tiene campos para llenar. Puede agregarlos en Plantillas.",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = Gris,
-                )
-            }
-        }
-
-        OutlinedButton(onClick = { verPrevia = !verPrevia }, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(16.dp)) {
-            Text(if (verPrevia) "Ocultar vista previa" else "👁  Ver vista previa")
-        }
-        if (verPrevia) {
-            val resultado = remember(plantilla, datos) { renderizar(plantilla, datos) }
-            VistaPrevia(resultado.imagen)
-            Avisos(resultado.avisos)
-        }
-
-        BotonPrincipal(if (printing) "Imprimiendo…" else "🖨️  Imprimir nota de entrega", enabled = !printing) { pedirCopias = true }
-        EstadoImpresion(status)
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            TextButton(onClick = onLimpiar) { Text("Limpiar todo") }
-            TextButton(onClick = onEditarPlantilla) { Text("Editar plantilla") }
-        }
-    }
-
-    if (pedirCopias) {
-        DialogoCopias(
-            onCancelar = { pedirCopias = false },
-            onImprimir = {
-                pedirCopias = false
-                onImprimir(it)
-            },
-        )
-    }
-}
-
-@Composable
-private fun CampoParaLlenar(
-    c: Elemento.Campo,
-    valor: String,
-    sugerencias: (String, String) -> List<String>,
-    onOlvidar: (String, String) -> Unit,
-    onCambio: (String) -> Unit,
-) {
-    val automatico = c.tipo == TipoCampo.FECHA || c.tipo == TipoCampo.HORA
-    val conMemoria = !automatico && c.tipo != TipoCampo.NUMERO
-    var enfocado by remember { mutableStateOf(false) }
-    val clave = Memoria.claveCampo(c.etiqueta)
-    var texto by textoConCursor(valor)
-    OutlinedTextField(
-        value = texto,
-        onValueChange = {
-            texto = it
-            if (it.text != valor) onCambio(it.text)
-        },
-        label = { Text(if (automatico) "${c.etiqueta} (automática si se deja vacía)" else c.etiqueta) },
-        placeholder = {
-            Text(
-                when {
-                    automatico -> "Automática: " + (if (c.tipo == TipoCampo.FECHA) Renderizador.fecha(Date()) else Renderizador.hora(Date()))
-                    c.valorInicial.isNotBlank() -> c.valorInicial
-                    else -> "En blanco = línea para llenar a mano"
-                },
-            )
-        },
-        singleLine = c.tipo != TipoCampo.PARRAFO,
-        minLines = if (c.tipo == TipoCampo.PARRAFO) 3 else 1,
-        keyboardOptions = KeyboardOptions(keyboardType = if (c.tipo == TipoCampo.NUMERO) KeyboardType.Number else KeyboardType.Text),
-        shape = RoundedCornerShape(14.dp),
-        modifier = Modifier.fillMaxWidth().onFocusChanged { enfocado = it.isFocused },
-    )
-    if (conMemoria && enfocado) {
-        ListaSugerencias(sugerencias(clave, valor), onElegir = onCambio, onOlvidar = { onOlvidar(clave, it) })
-    }
-}
-
-/**
- * Texto del campo con su cursor. Cuando el texto cambia desde afuera (al elegir una
- * sugerencia), el cursor se pone al final para seguir escribiendo.
- */
-@Composable
-private fun textoConCursor(valor: String): androidx.compose.runtime.MutableState<TextFieldValue> {
-    val estado = remember { mutableStateOf(TextFieldValue(valor, TextRange(valor.length))) }
-    if (estado.value.text != valor) estado.value = TextFieldValue(valor, TextRange(valor.length))
-    return estado
-}
-
-/** Lo que ya se escribió antes en este campo: se toca y se llena solo. */
-@Composable
-private fun ListaSugerencias(lista: List<String>, onElegir: (String) -> Unit, onOlvidar: (String) -> Unit) {
-    if (lista.isEmpty()) return
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(LocalPaleta.current.suave),
-    ) {
-        lista.forEach { texto ->
-            Row(
-                Modifier.fillMaxWidth().clickable { onElegir(texto) }.padding(start = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("🕘", fontSize = 15.sp)
-                Text(
-                    texto,
-                    Modifier.weight(1f).padding(horizontal = 10.dp, vertical = 12.dp),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = LocalPaleta.current.oscuro,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                IconButton(onClick = { onOlvidar(texto) }) {
-                    Icon(Icons.Filled.Close, contentDescription = "Olvidar \"$texto\"", tint = Gris, modifier = Modifier.size(18.dp))
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun TablaParaLlenar(
-    t: Elemento.Tabla,
-    filas: List<List<String>>,
-    sugerencias: (String, String) -> List<String>,
-    onOlvidar: (String, String) -> Unit,
-    onFilas: (List<List<String>>) -> Unit,
-) {
-    val lista = filas.ifEmpty { listOf(t.columnas.map { "" }) }
-    // Celda donde se está escribiendo (fila, columna), para mostrar sus sugerencias.
-    var foco by remember { mutableStateOf<Pair<Int, Int>?>(null) }
-    fun cambiarCelda(i: Int, c: Int, nuevo: String) {
-        val fila = lista[i]
-        val nuevaFila = t.columnas.indices.map { if (it == c) nuevo else fila.getOrElse(it) { "" } }
-        onFilas(lista.toMutableList().also { it[i] = nuevaFila })
-    }
-    Tarjeta {
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Titulo("Productos", Modifier.weight(1f))
-                totalTabla(t, lista)?.let { Text("Total: $it", fontWeight = FontWeight.Bold, color = LocalPaleta.current.oscuro) }
-            }
-            lista.forEachIndexed { i, fila ->
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    t.columnas.forEachIndexed { c, col ->
-                        val valor = fila.getOrElse(c) { "" }
-                        var texto by textoConCursor(valor)
-                        OutlinedTextField(
-                            value = texto,
-                            onValueChange = {
-                                texto = it
-                                if (it.text != valor) cambiarCelda(i, c, it.text)
-                            },
-                            label = { Text(col.titulo, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = if (col.numerica) KeyboardType.Number else KeyboardType.Text),
-                            shape = RoundedCornerShape(12.dp),
-                            // Las cantidades necesitan espacio para escribir aunque la columna impresa sea angosta.
-                            modifier = Modifier
-                                .weight(if (col.numerica) 1.6f else col.ancho.coerceIn(2, 4).toFloat())
-                                .onFocusChanged { estado ->
-                                    if (estado.isFocused) foco = i to c else if (foco == i to c) foco = null
-                                },
-                        )
-                    }
-                    IconButton(onClick = { onFilas(lista.filterIndexed { j, _ -> j != i }) }) {
-                        Icon(Icons.Filled.Close, contentDescription = "Quitar producto", tint = Gris)
-                    }
-                }
-                val f = foco
-                if (f != null && f.first == i && t.columnas.getOrNull(f.second)?.numerica == false) {
-                    val clave = Memoria.claveColumna(t.columnas[f.second].titulo)
-                    ListaSugerencias(
-                        sugerencias(clave, fila.getOrElse(f.second) { "" }),
-                        onElegir = { cambiarCelda(i, f.second, it) },
-                        onOlvidar = { onOlvidar(clave, it) },
-                    )
-                }
-            }
-            OutlinedButton(
-                onClick = { onFilas(lista + listOf(t.columnas.map { "" })) },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
-            ) { Text("+  Agregar producto") }
         }
     }
 }

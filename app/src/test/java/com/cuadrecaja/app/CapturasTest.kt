@@ -73,6 +73,12 @@ class CapturasTest {
     }
 
     private fun pantalla(nombre: String) {
+        // El ticket se vuelve a dibujar un momento después de cada cambio: dejar pasar ese tiempo.
+        repeat(3) {
+            compose.mainClock.advanceTimeBy(300)
+            compose.waitForIdle()
+            Thread.sleep(150)
+        }
         compose.waitForIdle()
         val vista = compose.activity.window.decorView
         val b = Bitmap.createBitmap(vista.width, vista.height, Bitmap.Config.ARGB_8888)
@@ -159,22 +165,46 @@ class CapturasTest {
         }
 
         compose.onNodeWithText("Nota de entrega").performClick()
-        compose.onNodeWithText("Establecimiento").performTextInput("Tienda Doña Rosa")
-        compose.onNodeWithText("Nombre del que retira").performTextInput("Ber")
-        pantalla("04a_memoria_nombre")
+        compose.waitUntil(5000) { compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ticket")).fetchSemanticsNodes().isNotEmpty() }
+        pantalla("04_nota_ticket")
+
+        // Tocar un campo en el mismo ticket abre ahí el cuadro para escribir.
+        val plantilla = vm.plantillas.first()
+        val zonas = Renderizador(compose.activity).dibujar(plantilla, Datos(), 576).zonas
+        fun tocar(etiqueta: String) {
+            val id = plantilla.elementos.first {
+                (it is Elemento.Campo && it.etiqueta == etiqueta) || (it is Elemento.Tabla && etiqueta == "tabla")
+            }.id
+            val z = zonas.first { it.id == id }
+            compose.onNodeWithTag("ticket").performTouchInput {
+                click(androidx.compose.ui.geometry.Offset(width / 2f, (z.arriba + z.abajo) / 2f * width / 576f))
+            }
+            compose.waitForIdle()
+        }
+        tocar("Establecimiento")
+        compose.onNodeWithContentDescription("Establecimiento").performTextInput("Tienda Doña Rosa")
+        pantalla("04a_escribiendo")
+        tocar("Nombre del que retira")
+        // Vacío no muestra historial; al escribir, solo lo que coincide.
+        assertEquals(0, compose.onAllNodesWithText("Carlos Pérez").fetchSemanticsNodes().size)
+        compose.onNodeWithContentDescription("Nombre del que retira").performTextInput("Ber")
+        pantalla("04b_memoria_nombre")
+        assertEquals(0, compose.onAllNodesWithText("Carlos Pérez").fetchSemanticsNodes().size)
         compose.onNodeWithText("Bernardo Guillén").performClick()
+        tocar("tabla")
         compose.onNodeWithText("Producto").performTextInput("salen")
-        pantalla("04b_memoria_producto")
+        pantalla("04c_memoria_producto")
         compose.onNodeWithText("Salentine vino tinto 750").performClick()
-        pantalla("04_nota_entrega")
-        compose.onNodeWithText("👁  Ver vista previa").performScrollTo().performClick()
-        compose.onNodeWithText("Ocultar vista previa").performScrollTo()
-        pantalla("05_nota_vista_previa")
-        compose.onNodeWithText("🖨️  Imprimir nota de entrega").performScrollTo().performClick()
+        compose.onAllNodesWithText("Cant.")[0].performTextInput("12")
+        assertEquals(listOf(listOf("12", "Salentine vino tinto 750")), vm.filas[plantilla.tablas.first().id])
+        compose.onNodeWithText("Listo").performClick()
+        pantalla("05_nota_llena")
+        assertEquals("Bernardo Guillén", vm.campos[plantilla.campos.first { it.etiqueta == "Nombre del que retira" }.id])
+        compose.onNodeWithText("  Imprimir").performClick()
         ventana("06_copias")
         compose.onNodeWithText("Cancelar").performClick()
 
-        compose.onNodeWithText("Editar plantilla").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Editar plantilla").performClick()
         compose.waitUntil(5000) { compose.onAllNodes(androidx.compose.ui.test.hasTestTag("lienzo")).fetchSemanticsNodes().isNotEmpty() }
         pantalla("07_editor")
 
