@@ -5,6 +5,9 @@
 # Mientras se escribe aparecen sugerencias de lo que ya se escribió antes:
 #   Tab o flecha derecha = completar · flechas arriba/abajo = elegir · Enter = aceptar.
 #
+# Comandos en el menú: Enter = nueva nota, R = reimprimir la última, H = historial (últimas 5),
+# Esc = salir. Las impresiones quedan guardadas aunque se cierre el programa.
+#
 # Uso: doble clic en "Nota de entrega.bat".
 
 $ErrorActionPreference = 'Stop'
@@ -19,6 +22,8 @@ try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch { }
 try { $Host.UI.RawUI.WindowTitle = 'Nota de entrega' } catch { }
 
 $Memoria = New-Object MemoriaNota (Join-Path $PSScriptRoot 'memoria-notas.json')
+$CarpetaHistorial = Join-Path $PSScriptRoot 'historial-notas'
+$MaxHistorial = 5
 $Acento = 'Cyan'
 $Suave = 'DarkGray'
 
@@ -278,16 +283,146 @@ function Invoke-Imprimir($p, $datos, [int]$copias, $config) {
         foreach ($k in $datos.Campos.Keys) { $o.campos[$k] = $datos.Campos[$k] }
         foreach ($k in $datos.Filas.Keys) { $o.filas[$k] = @($datos.Filas[$k] | ForEach-Object { , @($_) }) }
         $o | ConvertTo-Json -Depth 6 | Set-Content -Path $SalidaPrueba -Encoding UTF8
+        Save-Historial $null $p $datos $copias
         return
     }
     $avisos = New-Object 'System.Collections.Generic.List[string]'
     $img = [NotaDibujo]::Dibujar($p, $datos, (Get-Date), $avisos)
     try {
-        $trabajo = [NotaDibujo]::Trabajo($img, $copias)
+        foreach ($a in $avisos) { Write-Host "  ! $a" -ForegroundColor Yellow }
+        Send-Ticket $config ([NotaDibujo]::Trabajo($img, $copias))
+        Add-Registro "Nota '$($p.Nombre)' impresa ($copias copia(s))."
+        Save-Historial $img $p $datos $copias
     } finally { $img.Dispose() }
-    foreach ($a in $avisos) { Write-Host "  ! $a" -ForegroundColor Yellow }
-    Send-Ticket $config $trabajo
-    Add-Registro "Nota '$($p.Nombre)' impresa ($copias copia(s))."
+}
+
+# ---------- Historial (últimas 5 impresiones, se conservan al cerrar el programa) ----------
+
+function Get-Resumen($p, $datos) {
+    $partes = @()
+    foreach ($x in $p.Llenables) {
+        if ($x -is [CampoNota] -and -not $x.Automatico) {
+            $v = ''
+            if ($datos.Campos.TryGetValue($x.Id, [ref]$v) -and $v.Trim()) { $partes += $v.Trim() }
+        }
+    }
+    $n = 0
+    foreach ($x in $p.Llenables) { if ($x -is [TablaNota]) { $n += $datos.FilasDe($x.Id).Count } }
+    if ($n -gt 0) { $partes += "$n producto" + $(if ($n -ne 1) { 's' } else { '' }) }
+    return ($partes -join ' · ')
+}
+
+# Guarda la nota ya dibujada (una copia), para reimprimirla igual aunque cambie la plantilla.
+function Save-Historial($img, $p, $datos, [int]$copias) {
+    try {
+        New-Item -ItemType Directory -Path $CarpetaHistorial -Force | Out-Null
+        $id = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
+        if ($img) { [NotaDibujo]::GuardarPng($img, (Join-Path $CarpetaHistorial "$id.png")) }
+        [ordered]@{ id = $id; fecha = (Get-Date).ToString('o'); plantilla = $p.Nombre; resumen = (Get-Resumen $p $datos); copias = $copias } |
+            ConvertTo-Json | Set-Content -Path (Join-Path $CarpetaHistorial "$id.json") -Encoding UTF8
+        # Solo las últimas 5.
+        Get-Historial | Select-Object -Skip $MaxHistorial | ForEach-Object {
+            Remove-Item -Path (Join-Path $CarpetaHistorial "$($_.id).*") -ErrorAction SilentlyContinue
+        }
+    } catch {
+        Add-Registro "No se pudo guardar en el historial: $($_.Exception.Message)"
+    }
+}
+
+function Get-Historial {
+    if (-not (Test-Path $CarpetaHistorial)) { return @() }
+    $lista = @()
+    foreach ($f in (Get-ChildItem $CarpetaHistorial -Filter '*.json')) {
+        try { $lista += (Get-Content $f.FullName -Raw -Encoding UTF8 | ConvertFrom-Json) } catch { }
+    }
+    return @($lista | Sort-Object id -Descending)
+}
+
+function Format-Fecha($iso) {
+    try { return ([datetime]::Parse($iso)).ToString('dd/MM/yyyy  hh:mm tt', [Globalization.CultureInfo]::GetCultureInfo('en-US')) } catch { return $iso }
+}
+
+function Show-Entrada($e, $numero = $null) {
+    if ($numero) { Write-Host ("    {0}  " -f $numero) -ForegroundColor Cyan -NoNewline } else { Write-Host '    ' -NoNewline }
+    Write-Host (Format-Fecha $e.fecha) -ForegroundColor White -NoNewline
+    Write-Host "   $($e.plantilla)" -ForegroundColor DarkCyan -NoNewline
+    Write-Host ("   · {0} copia{1}" -f $e.copias, $(if ($e.copias -ne 1) { 's' } else { '' })) -ForegroundColor DarkGray
+    if ($e.resumen) { Write-Host "       $($e.resumen)" -ForegroundColor Gray }
+}
+
+# Pregunta cuántas copias; si se deja vacío, las mismas que la última vez.
+function Read-Copias([int]$predeterminado) {
+    if ($predeterminado -lt 1) { $predeterminado = 1 }
+    $txt = Read-Texto -Etiqueta '¿Cuántas copias?' -Pista "$predeterminado" -Numero
+    $n = 0
+    if (-not [int]::TryParse($txt, [ref]$n) -or $n -lt 1) { $n = $predeterminado }
+    return [Math]::Min(10, $n)
+}
+
+function Confirm-Imprimir {
+    Write-Host ''
+    Write-Host '  Enter = IMPRIMIR   ·   Esc = cancelar' -ForegroundColor Cyan
+    $t = Read-Tecla
+    return -not (($t -is [ConsoleKeyInfo] -and $t.Key -eq 'Escape') -or ($t -is [string] -and $t -eq 'cancelar'))
+}
+
+# Reimprime una nota guardada. Devuelve el mensaje para mostrar en el menú.
+function Invoke-Reimpresion($e, $config) {
+    Show-Encabezado "Reimprimir   ·   Impresora: $impresora"
+    Show-Entrada $e
+    Write-Host ''
+    $copias = Read-Copias ([int]$e.copias)
+    if (-not (Confirm-Imprimir)) { return @{ Texto = 'Reimpresión cancelada.'; Color = 'Yellow' } }
+    try {
+        Write-Host ''
+        Write-Host '  Imprimiendo...' -ForegroundColor DarkGray
+        if ($SalidaPrueba) {
+            [ordered]@{ reimpresion = $e.id; copias = $copias } | ConvertTo-Json | Set-Content -Path $SalidaPrueba -Encoding UTF8
+        } else {
+            $ruta = Join-Path $CarpetaHistorial "$($e.id).png"
+            if (-not (Test-Path $ruta)) { throw 'no se encontró la nota guardada' }
+            $img = [NotaDibujo]::CargarImagen($ruta)
+            try { Send-Ticket $config ([NotaDibujo]::Trabajo($img, $copias)) } finally { $img.Dispose() }
+        }
+        Add-Registro "Reimpresión de la nota $($e.id) ($copias copia(s))."
+        return @{ Texto = "$([char]0x2713) Nota reimpresa" + $(if ($copias -gt 1) { " ($copias copias)" } else { '' }); Color = 'Green' }
+    } catch {
+        Add-Registro "Error al reimprimir: $($_.Exception.Message)"
+        return @{ Texto = "No se pudo reimprimir: $($_.Exception.Message)"; Color = 'Red' }
+    }
+}
+
+function Show-Historial($config) {
+    $hist = @(Get-Historial)
+    Show-Encabezado "Historial   ·   últimas $MaxHistorial impresiones"
+    if ($hist.Count -eq 0) {
+        Show-Mensaje 'Todavía no hay notas impresas.' 'Yellow'
+        Write-Host ''
+        Write-Host '  Enter = volver' -ForegroundColor DarkCyan
+        [void](Read-Tecla)
+        return $null
+    }
+    for ($i = 0; $i -lt $hist.Count; $i++) { Show-Entrada $hist[$i] ($i + 1); Write-Host '' }
+    Write-Host '  Escriba el número para reimprimir, o Enter para volver.' -ForegroundColor DarkGray
+    $r = Read-Texto -Etiqueta 'Número' -Numero
+    $n = 0
+    if (-not [int]::TryParse($r, [ref]$n) -or $n -lt 1 -or $n -gt $hist.Count) { return $null }
+    return (Invoke-Reimpresion $hist[$n - 1] $config)
+}
+
+# Qué tecla se tocó en el menú: nueva, r, h o salir.
+function Get-Comando($t) {
+    if ($t -is [ConsoleKeyInfo]) {
+        if ($t.Key -eq 'Escape') { return 'salir' }
+        if ($t.Key -eq 'Enter' -or $t.KeyChar -eq 'n' -or $t.KeyChar -eq 'N') { return 'nueva' }
+        if ($t.KeyChar -eq 'r' -or $t.KeyChar -eq 'R') { return 'r' }
+        if ($t.KeyChar -eq 'h' -or $t.KeyChar -eq 'H') { return 'h' }
+        return $null
+    }
+    $s = ([string]$t).Trim().ToLower()
+    if ($s -eq '' -or $s -eq 'n') { return 'nueva' }
+    if ($s -in @('r', 'h', 'salir')) { return $s }
+    return $null
 }
 
 # ---------- Programa ----------
@@ -301,7 +436,34 @@ if (-not $config -and -not $SalidaPrueba) {
 }
 $impresora = if ($config) { $config.impresora } else { 'prueba' }
 
+$mensaje = $null
 while ($true) {
+    # ---------- Menú ----------
+    $hist = @(Get-Historial)
+    Show-Encabezado "Impresora: $impresora"
+    if ($mensaje) { Write-Host ('  ' + $mensaje.Texto) -ForegroundColor $mensaje.Color; Write-Host ''; $mensaje = $null }
+    if ($hist.Count -gt 0) {
+        Write-Host '  Última impresión' -ForegroundColor DarkGray
+        Show-Entrada $hist[0]
+        Write-Host ''
+    }
+    foreach ($o in @(@('Enter', 'Nueva nota de entrega'), @('R', 'Reimprimir la última'), @('H', "Historial (últimas $MaxHistorial)"), @('Esc', 'Salir'))) {
+        Write-Host ('   ' + (' ' + $o[0] + ' ').PadRight(8)) -ForegroundColor Black -BackgroundColor DarkCyan -NoNewline
+        Write-Host ('  ' + $o[1]) -ForegroundColor White
+        Write-Host ''
+    }
+    $comando = Get-Comando (Read-Tecla)
+
+    if ($comando -eq 'salir') { break }
+    if ($comando -eq 'r') {
+        if ($hist.Count -eq 0) { $mensaje = @{ Texto = 'Todavía no hay notas impresas para reimprimir.'; Color = 'Yellow' } }
+        else { $mensaje = Invoke-Reimpresion $hist[0] $config }
+        continue
+    }
+    if ($comando -eq 'h') { $mensaje = Show-Historial $config; continue }
+    if ($comando -ne 'nueva') { continue }
+
+    # ---------- Nueva nota ----------
     $plantillas = @(Get-Plantillas)
     if ($plantillas.Count -eq 0) {
         Show-Encabezado "Impresora: $impresora"
@@ -310,10 +472,8 @@ while ($true) {
         Write-Host '  En el celular: Plantillas > tres puntos de la plantilla > "Actualizar en la computadora".' -ForegroundColor Gray
         Write-Host '  (El receptor debe estar funcionando.)' -ForegroundColor DarkGray
         Write-Host ''
-        Write-Host '  Enter = volver a revisar   ·   Esc = salir' -ForegroundColor DarkCyan
-        $t = Read-Tecla
-        if ($t -is [ConsoleKeyInfo] -and $t.Key -eq 'Escape') { exit 0 }
-        if ($t -is [string] -and $t -eq 'salir') { exit 0 }
+        Write-Host '  Enter = volver' -ForegroundColor DarkCyan
+        [void](Read-Tecla)
         continue
     }
 
@@ -328,31 +488,20 @@ while ($true) {
     Show-Resumen $p $datos
 
     Write-Host ''
-    $txtCopias = Read-Texto -Etiqueta 'Copias' -Pista '1' -Numero
-    $copias = 1
-    if (-not [int]::TryParse($txtCopias, [ref]$copias) -or $copias -lt 1) { $copias = 1 }
-    $copias = [Math]::Min(10, $copias)
+    $copias = Read-Copias $(if ($hist.Count -gt 0) { [int]$hist[0].copias } else { 1 })
 
-    Write-Host ''
-    Write-Host '  Enter = IMPRIMIR   ·   Esc = cancelar' -ForegroundColor Cyan
-    $t = Read-Tecla
-    $cancelar = ($t -is [ConsoleKeyInfo] -and $t.Key -eq 'Escape') -or ($t -is [string] -and $t -eq 'cancelar')
-    if ($cancelar) {
-        Show-Mensaje 'Nota cancelada.' 'Yellow'
-    } else {
-        try {
-            Write-Host ''
-            Write-Host '  Imprimiendo...' -ForegroundColor DarkGray
-            Invoke-Imprimir $p $datos $copias $config
-            Save-EnMemoria $p $datos
-            Show-Mensaje ("$([char]0x2713) Nota impresa" + $(if ($copias -gt 1) { " ($copias copias)" } else { '' })) 'Green'
-        } catch {
-            Show-Mensaje "No se pudo imprimir: $($_.Exception.Message)" 'Red'
-            Add-Registro "Error al imprimir la nota: $($_.Exception.Message)"
-        }
+    if (-not (Confirm-Imprimir)) {
+        $mensaje = @{ Texto = 'Nota cancelada.'; Color = 'Yellow' }
+        continue
     }
-    Write-Host ''
-    Write-Host '  Enter = nueva nota   ·   Esc = salir' -ForegroundColor DarkCyan
-    $t = Read-Tecla
-    if (($t -is [ConsoleKeyInfo] -and $t.Key -eq 'Escape') -or ($t -is [string] -and $t -eq 'salir')) { break }
+    try {
+        Write-Host ''
+        Write-Host '  Imprimiendo...' -ForegroundColor DarkGray
+        Invoke-Imprimir $p $datos $copias $config
+        Save-EnMemoria $p $datos
+        $mensaje = @{ Texto = "$([char]0x2713) Nota impresa" + $(if ($copias -gt 1) { " ($copias copias)" } else { '' }) + '   ·   R = reimprimir'; Color = 'Green' }
+    } catch {
+        $mensaje = @{ Texto = "No se pudo imprimir: $($_.Exception.Message)"; Color = 'Red' }
+        Add-Registro "Error al imprimir la nota: $($_.Exception.Message)"
+    }
 }

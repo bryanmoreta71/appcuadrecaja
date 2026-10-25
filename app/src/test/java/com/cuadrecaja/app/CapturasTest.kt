@@ -160,6 +160,37 @@ class CapturasTest {
             filas = mapOf(nota.tablas[0].id to listOf(listOf("12", "Agua 500 ml"), listOf("3", "Arroz 5 lb (saco grande con descripción larga)"), listOf("1", "Aceite"))),
         )
         guardar("celular_paquete_nota", Renderizador(ctx).dibujar(conQr, datosQr, 576, fecha).imagen)
+        // Como la plantilla real de La Taberna: etiquetas largas en línea y tabla con letra clásica.
+        val taberna = Plantilla(
+            nombre = "Taberna",
+            elementos = listOf(
+                Elemento.Imagen(archivo = "logo.png", anchoPorcentaje = 80),
+                Elemento.Espacio(alto = 30),
+                Elemento.Campo(etiqueta = "MOTIVO", forma = FormaCampo.EN_LINEA, borde = Borde.NINGUNO),
+                Elemento.Campo(etiqueta = "Nombre de quien retira ", forma = FormaCampo.EN_LINEA, borde = Borde.NINGUNO),
+                Elemento.Campo(
+                    etiqueta = "La presente nota de entrega  fue emitida en la localidad de Samborondón a las",
+                    tipo = com.cuadrecaja.app.plantillas.TipoCampo.HORA, forma = FormaCampo.EN_LINEA, borde = Borde.NINGUNO,
+                ),
+                Elemento.Campo(etiqueta = "El dia de hoy", tipo = com.cuadrecaja.app.plantillas.TipoCampo.FECHA, forma = FormaCampo.EN_LINEA, borde = Borde.NINGUNO),
+                Elemento.Espacio(alto = 30),
+                Elemento.Tabla(encabezadoInvertido = false, estilo = Estilo(letra = Letra.CLASICA, tamano = 40, negrita = true)),
+                Elemento.Espacio(alto = 60),
+                Elemento.Texto(texto = "El responsable de la mercadería declara recibirla conforme, en buen estado y sin inconsistencias, dejando constancia de su aceptación mediante la firma correspondiente.", estilo = Estilo(tamano = 26)),
+                Elemento.Espacio(alto = 80),
+                Elemento.Firma(etiqueta = "Firma"),
+            ),
+        )
+        val datosTaberna = Datos(
+            campos = mapOf(taberna.campos[0].id to "TASLADO DE LOCALES", taberna.campos[1].id to "CATTY"),
+            filas = mapOf(taberna.tablas[0].id to listOf(listOf("2", "SILK SPICE 750 TINTO"), listOf("1", "tocornal merlot"))),
+        )
+        File(dir, "paquete_taberna.bin").writeBytes(com.cuadrecaja.app.impresion.PaqueteComputadora.crear(ctx, taberna, 576, mem).datos)
+        File(dir, "datos_taberna.txt").writeText(
+            "${taberna.campos[0].id}=TASLADO DE LOCALES\n${taberna.campos[1].id}=CATTY\n" +
+                "fila:${taberna.tablas[0].id}=2|SILK SPICE 750 TINTO\nfila:${taberna.tablas[0].id}=1|tocornal merlot\n",
+        )
+        guardar("celular_taberna", Renderizador(ctx).dibujar(taberna, datosTaberna, 576, fecha).imagen)
         File(dir, "nota_empaquetada.bin").writeBytes(BluetoothPrinter.empaquetar(EscPos.trabajo(raster, 2)))
         File(dir, "cuadre.bin").writeBytes(BluetoothPrinter.buildEscPos(buildReport(mapOf("b20" to 5), fecha)))
     }

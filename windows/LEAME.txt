@@ -46,6 +46,11 @@ NOTA DE ENTREGA DESDE LA COMPUTADORA (para los companeros)
    de la plantilla. Mientras se escribe aparecen sugerencias de lo que ya se escribio:
    Tab o flecha derecha completa, flechas arriba/abajo eligen, Enter acepta.
    En productos, dejar el producto en blanco y Enter termina la lista.
+   Al abrir aparece el menu:
+     Enter = nueva nota   R = reimprimir la ultima   H = historial (ultimas 5)   Esc = salir
+   Al imprimir o reimprimir pregunta cuantas copias (Enter = las mismas de la ultima vez).
+   Las ultimas 5 notas quedan guardadas en la carpeta "historial-notas" aunque se cierre
+   el programa, asi se puede reimprimir la copia que falto.
 - Las plantillas quedan en la carpeta "plantillas" y lo escrito en memoria-notas.json.
 - Para quitar una plantilla de la computadora, borre su archivo de la carpeta "plantillas".
 

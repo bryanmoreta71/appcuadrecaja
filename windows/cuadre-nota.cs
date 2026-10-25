@@ -896,6 +896,25 @@ public static class NotaDibujo
         b.UnlockBits(d);
     }
 
+    public static void GuardarPng(Bitmap b, string ruta) { b.Save(ruta, ImageFormat.Png); }
+
+    /** Abre una nota guardada (PNG) como imagen de 32 bits, lista para Trabajo(). */
+    public static Bitmap CargarImagen(string ruta)
+    {
+        using (MemoryStream ms = new MemoryStream(File.ReadAllBytes(ruta)))
+        using (Bitmap leida = new Bitmap(ms))
+        {
+            Bitmap b = new Bitmap(leida.Width, leida.Height, PixelFormat.Format32bppArgb);
+            using (Graphics g = Graphics.FromImage(b))
+            {
+                g.Clear(Color.White);
+                g.InterpolationMode = InterpolationMode.NearestNeighbor;
+                g.DrawImage(leida, new Rectangle(0, 0, b.Width, b.Height), 0, 0, leida.Width, leida.Height, GraphicsUnit.Pixel);
+            }
+            return b;
+        }
+    }
+
     /** Comandos ESC/POS: la imagen en bandas, con avance y corte entre copias (igual que EscPos.kt). */
     public static byte[] Trabajo(Bitmap b, int copias)
     {

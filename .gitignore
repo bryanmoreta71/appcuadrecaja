@@ -12,3 +12,6 @@ windows/plantillas/
 windows/*.log
 windows/cuadre-config.json
 windows/memoria-notas.json
+
+# Notas guardadas para reimprimir
+windows/historial-notas/
