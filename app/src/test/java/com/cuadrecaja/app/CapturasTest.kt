@@ -134,6 +134,7 @@ class CapturasTest {
         val raster = EscPos.imagen(r1.imagen.width, r1.imagen.height, Renderizador.puntosNegros(r1.imagen))
         println("Nota 80 mm: ${r1.imagen.height} filas, ${raster.size} bytes")
         File(dir, "nota_2copias.bin").writeBytes(EscPos.trabajo(raster, 2))
+        File(dir, "nota_empaquetada.bin").writeBytes(BluetoothPrinter.empaquetar(EscPos.trabajo(raster, 2)))
         File(dir, "cuadre.bin").writeBytes(BluetoothPrinter.buildEscPos(buildReport(mapOf("b20" to 5), fecha)))
     }
 

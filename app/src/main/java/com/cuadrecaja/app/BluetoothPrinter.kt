@@ -132,29 +132,75 @@ class BluetoothPrinter(private val context: Context) {
     }
 
     @SuppressLint("MissingPermission")
-    suspend fun print(device: BluetoothDevice, data: ByteArray) = withContext(Dispatchers.IO) {
+    /** La computadora recibió el ticket pero avisó que no pudo imprimirlo (o llegó dañado). */
+    class ErrorReceptor(mensaje: String) : IOException(mensaje)
+
+    enum class Entrega {
+        /** La impresora recibió todo (impresora Bluetooth) o la computadora confirmó que imprimió. */
+        IMPRESO,
+        /** Se mandó a la computadora pero no respondió (receptor viejo, sin confirmación). */
+        SIN_CONFIRMAR,
+    }
+
+    /** Es la computadora con el receptor de Windows (y no una impresora Bluetooth). */
+    @SuppressLint("MissingPermission")
+    fun esComputadora(device: BluetoothDevice) =
+        device.bluetoothClass?.majorDeviceClass == BluetoothClass.Device.Major.COMPUTER
+
+    @SuppressLint("MissingPermission")
+    suspend fun print(device: BluetoothDevice, data: ByteArray): Entrega = withContext(Dispatchers.IO) {
         adapter?.cancelDiscovery()
+        val aComputadora = esComputadora(device)
+        // A la computadora se le manda empaquetado, para que sepa cuándo llegó completo.
+        val enviar = if (aComputadora) empaquetar(data) else data
         val socket = try {
             device.createRfcommSocketToServiceRecord(SPP_UUID).also { it.connect() }
         } catch (e: IOException) {
             // Algunas impresoras solo aceptan la conexión "insegura".
             device.createInsecureRfcommSocketToServiceRecord(SPP_UUID).also { it.connect() }
         }
-        socket.use {
+        val entrega = socket.use {
             // En pedazos, para no llenar el búfer de las impresoras portátiles con las imágenes.
             var i = 0
-            while (i < data.size) {
-                val n = minOf(CHUNK, data.size - i)
-                it.outputStream.write(data, i, n)
+            while (i < enviar.size) {
+                val n = minOf(CHUNK, enviar.size - i)
+                it.outputStream.write(enviar, i, n)
                 i += n
-                if (data.size > CHUNK) Thread.sleep(15)
+                if (enviar.size > CHUNK) Thread.sleep(15)
             }
             it.outputStream.flush()
-            // Dar tiempo a que termine de salir todo antes de cerrar la conexión
-            // (más tiempo para las notas de entrega, que son imágenes grandes).
-            Thread.sleep((800L + data.size / 25).coerceAtMost(15_000L))
+            if (aComputadora) {
+                when (val r = esperarRespuesta(it.inputStream)) {
+                    null -> Entrega.SIN_CONFIRMAR
+                    "OK" -> Entrega.IMPRESO
+                    else -> throw ErrorReceptor(r.removePrefix("ERROR").trim().ifEmpty { "error en la computadora" })
+                }
+            } else {
+                // Dar tiempo a que termine de salir todo antes de cerrar la conexión
+                // (más tiempo para las notas de entrega, que son imágenes grandes).
+                Thread.sleep((800L + enviar.size / 25).coerceAtMost(15_000L))
+                Entrega.IMPRESO
+            }
         }
         savedAddress = device.address
+        entrega
+    }
+
+    /** Lee la respuesta del receptor ("OK" o "ERROR ..."). null si no contesta a tiempo. */
+    private fun esperarRespuesta(entrada: java.io.InputStream, esperaMs: Long = 30_000): String? {
+        val limite = System.currentTimeMillis() + esperaMs
+        val linea = StringBuilder()
+        while (System.currentTimeMillis() < limite) {
+            if (entrada.available() > 0) {
+                val b = entrada.read()
+                if (b < 0) return null
+                if (b == '\n'.code) {
+                    val t = linea.toString().trim()
+                    if (t.isNotEmpty()) return t
+                } else linea.append(b.toChar())
+            } else Thread.sleep(50)
+        }
+        return null
     }
 
     private fun Intent.bluetoothDevice(): BluetoothDevice? =
@@ -182,6 +228,17 @@ class BluetoothPrinter(private val context: Context) {
                 .replace(Regex("\\p{Mn}+"), "")
                 .replace("¢", "c")
                 .replace(Regex("[^\\x20-\\x7e]"), "")
+
+        /** "CCJ1" + largo + CRC32 + datos: así la computadora sabe que el ticket llegó entero. */
+        fun empaquetar(datos: ByteArray): ByteArray {
+            val crc = java.util.zip.CRC32().apply { update(datos) }.value
+            val cabecera = java.nio.ByteBuffer.allocate(12).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+                .put("CCJ1".toByteArray(Charsets.US_ASCII))
+                .putInt(datos.size)
+                .putInt(crc.toInt())
+                .array()
+            return cabecera + datos
+        }
 
         fun buildEscPos(lines: List<ReportLine>): ByteArray {
             val out = ByteArrayOutputStream()

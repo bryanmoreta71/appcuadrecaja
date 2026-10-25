@@ -474,7 +474,7 @@ class MainActivity : ComponentActivity() {
         printStatus = if (t.copias > 1) "Imprimiendo ${t.copias} copias en $nombre…" else "Imprimiendo en $nombre…"
         lifecycleScope.launch {
             printStatus = try {
-                printer.print(device, t.datos)
+                val entrega = printer.print(device, t.datos)
                 impresoraGuardada = nombre
                 if (t.guardarEnHistorial) {
                     impresion.historial.agregar(t.titulo, t.tipo, t.copias, t.datos, t.texto, t.imagen)
@@ -482,7 +482,14 @@ class MainActivity : ComponentActivity() {
                 }
                 pendiente = null
                 t.alImprimir?.invoke()
-                if (t.copias > 1) "✓ ${t.copias} copias impresas" else "✓ Impreso"
+                when {
+                    entrega == BluetoothPrinter.Entrega.SIN_CONFIRMAR ->
+                        "✓ Enviado a la computadora. (Actualice el receptor de Windows para que confirme la impresión.)"
+                    t.copias > 1 -> "✓ ${t.copias} copias impresas"
+                    else -> "✓ Impreso"
+                }
+            } catch (e: BluetoothPrinter.ErrorReceptor) {
+                "La computadora no imprimió: ${e.message}. Toque \"Imprimir\" de nuevo."
             } catch (e: Exception) {
                 "No se pudo imprimir. Verifique que la impresora esté encendida y cerca, y toque \"Imprimir\" de nuevo."
             }

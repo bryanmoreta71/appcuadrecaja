@@ -80,3 +80,16 @@ class MessageTest {
         assertEquals("Falta cambio", text.last())
     }
 }
+
+class EmpaquetarTest {
+    @Test
+    fun cabeceraConLargoYCrc() {
+        val datos = "123456789".toByteArray()
+        val t = BluetoothPrinter.empaquetar(datos)
+        assertEquals("CCJ1", String(t.copyOfRange(0, 4), Charsets.US_ASCII))
+        assertEquals(9, java.nio.ByteBuffer.wrap(t, 4, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).int)
+        // CRC32 conocido de "123456789".
+        assertEquals(0xCBF43926.toInt(), java.nio.ByteBuffer.wrap(t, 8, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).int)
+        assertArrayEquals(datos, t.copyOfRange(12, t.size))
+    }
+}

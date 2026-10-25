@@ -16,8 +16,12 @@ $ErrorActionPreference = 'Stop'
 $ConfigPath = Join-Path $PSScriptRoot 'cuadre-config.json'
 $LogPath = Join-Path $PSScriptRoot 'cuadre-receptor.log'
 
-# Si pasan más de estos milisegundos sin recibir datos, el ticket se da por completo.
-$FinDeTicketMs = 1500
+# Las versiones nuevas de la app mandan cada ticket "empaquetado": con su tamaño y un código
+# para comprobar que llegó entero (ver CuadreImpresora.TamanoTrama). Las versiones viejas
+# no: en ese caso, si pasan estos milisegundos sin recibir datos, el ticket se da por completo.
+$FinDeTicketMs = 2500
+# Si un ticket empaquetado deja de llegar a medias por este tiempo, se descarta (no se imprime basura).
+$TicketIncompletoMs = 20000
 
 Add-Type -ReferencedAssemblies System.Drawing -TypeDefinition @'
 using System;
@@ -97,6 +101,42 @@ public static class CuadreImpresora
         extra.CopyTo(r, inicio);
         Array.Copy(datos, inicio, r, inicio + extra.Count, datos.Length - inicio);
         return r;
+    }
+
+    // ---------- Tickets empaquetados ----------
+    // "CCJ1" + largo (4 bytes) + CRC32 (4 bytes) + datos ESC/POS.
+
+    private static readonly byte[] Magia = { 0x43, 0x43, 0x4A, 0x31 };
+
+    // -1: no es un ticket empaquetado (app vieja); 0: todavía falta; >0: tamaño total ya recibido.
+    public static int TamanoTrama(byte[] b, int n)
+    {
+        for (int i = 0; i < 4 && i < n; i++) if (b[i] != Magia[i]) return -1;
+        if (n < 12) return 0;
+        int largo = BitConverter.ToInt32(b, 4);
+        if (largo < 0 || largo > 20000000) return -1;
+        return n >= 12 + largo ? 12 + largo : 0;
+    }
+
+    public static byte[] AbrirTrama(byte[] b, out bool integro)
+    {
+        int largo = BitConverter.ToInt32(b, 4);
+        uint crc = BitConverter.ToUInt32(b, 8);
+        byte[] d = new byte[largo];
+        Array.Copy(b, 12, d, 0, largo);
+        integro = Crc32(d) == crc;
+        return d;
+    }
+
+    public static uint Crc32(byte[] d)
+    {
+        uint crc = 0xFFFFFFFF;
+        foreach (byte x in d)
+        {
+            crc ^= x;
+            for (int k = 0; k < 8; k++) crc = (crc & 1) != 0 ? (crc >> 1) ^ 0xEDB88320 : crc >> 1;
+        }
+        return ~crc;
     }
 
     // Un pedazo del ticket ya interpretado: una línea de texto o una imagen.
@@ -434,36 +474,89 @@ Write-Host "  Impresora:  $($config.impresora)"
 Write-Host '  Deje esta ventana abierta (puede minimizarla).'
 Write-Host '========================================' -ForegroundColor Green
 
+function Send-Respuesta($puerto, $texto) {
+    # La app espera esta respuesta para decir "Impreso" o pedir que se reintente.
+    try { $puerto.Write("$texto`n") } catch { }
+}
+
+function Invoke-Ticket($config, [byte[]]$datos) {
+    Write-Info "Ticket recibido ($($datos.Length) bytes). Imprimiendo..."
+    Send-Ticket $config $datos
+    Write-Info 'Ticket impreso.' 'Green'
+}
+
+# Lee el puerto sin parar y manda a imprimir cada ticket que llega completo.
+function Watch-Puerto($puerto, $config) {
+    $buffer = New-Object System.IO.MemoryStream
+    $ultimo = Get-Date
+    $leer = New-Object byte[] 65536
+
+    while ($true) {
+        $disponibles = $puerto.BytesToRead
+        if ($disponibles -gt 0) {
+            $n = $puerto.Read($leer, 0, [Math]::Min($disponibles, $leer.Length))
+            $buffer.Write($leer, 0, $n)
+            $ultimo = Get-Date
+            continue
+        }
+        if ($buffer.Length -eq 0) { Start-Sleep -Milliseconds 20; continue }
+
+        $arr = $buffer.ToArray()
+        $total = [CuadreImpresora]::TamanoTrama($arr, $arr.Length)
+        $quieto = ((Get-Date) - $ultimo).TotalMilliseconds
+
+        if ($total -gt 0) {
+            # Ticket empaquetado completo: comprobar que llegó entero antes de imprimir.
+            $resto = $arr.Length - $total
+            $buffer.SetLength(0)
+            if ($resto -gt 0) { $buffer.Write($arr, $total, $resto) }
+            $integro = $false
+            $datos = [CuadreImpresora]::AbrirTrama($arr, [ref]$integro)
+            if (-not $integro) {
+                Write-Info "El ticket llegó dañado ($($datos.Length) bytes); no se imprime. Se pidió reintentar." 'Red'
+                Send-Respuesta $puerto 'ERROR llego danado'
+                continue
+            }
+            try {
+                Invoke-Ticket $config $datos
+                Send-Respuesta $puerto 'OK'
+            } catch {
+                Write-Info "No se pudo imprimir: $($_.Exception.Message)" 'Red'
+                Send-Respuesta $puerto "ERROR $($_.Exception.Message)"
+            }
+        } elseif ($total -eq 0) {
+            # Empaquetado pero incompleto: esperar el resto, sin imprimir pedazos.
+            if ($quieto -ge $TicketIncompletoMs) {
+                Write-Info "El ticket llegó incompleto ($($arr.Length) bytes); se descarta." 'Red'
+                Send-Respuesta $puerto 'ERROR incompleto'
+                $buffer.SetLength(0)
+            } else {
+                Start-Sleep -Milliseconds 20
+            }
+        } elseif ($quieto -ge $FinDeTicketMs) {
+            # App vieja (sin empaquetar).
+            $buffer.SetLength(0)
+            if ($arr[0] -ne 0x1b) {
+                # Un ticket siempre empieza con ESC @; esto es un pedazo suelto: imprimirlo saldría en códigos raros.
+                Write-Info "Se ignoraron $($arr.Length) bytes sueltos (no es un ticket completo)." 'Yellow'
+                continue
+            }
+            try { Invoke-Ticket $config $arr } catch { Write-Info "No se pudo imprimir: $($_.Exception.Message)" 'Red' }
+        } else {
+            Start-Sleep -Milliseconds 20
+        }
+    }
+}
+
 while ($true) {
     $puerto = New-Object System.IO.Ports.SerialPort $config.puerto, 9600
     $puerto.ReadTimeout = 500
+    # Búfer grande: una nota de entrega con imágenes pesa decenas de KB.
+    $puerto.ReadBufferSize = 1048576
     try {
         $puerto.Open()
         Write-Info "Esperando tickets del celular en $($config.puerto)..." 'Cyan'
-        $buffer = New-Object System.IO.MemoryStream
-        $ultimo = Get-Date
-        $leer = New-Object byte[] 4096
-
-        while ($true) {
-            $disponibles = $puerto.BytesToRead
-            if ($disponibles -gt 0) {
-                $n = $puerto.Read($leer, 0, [Math]::Min($disponibles, $leer.Length))
-                $buffer.Write($leer, 0, $n)
-                $ultimo = Get-Date
-            } elseif ($buffer.Length -gt 0 -and ((Get-Date) - $ultimo).TotalMilliseconds -ge $FinDeTicketMs) {
-                $datos = $buffer.ToArray()
-                $buffer.SetLength(0)
-                Write-Info "Ticket recibido ($($datos.Length) bytes). Imprimiendo..."
-                try {
-                    Send-Ticket $config $datos
-                    Write-Info 'Ticket impreso.' 'Green'
-                } catch {
-                    Write-Info "No se pudo imprimir: $($_.Exception.Message)" 'Red'
-                }
-            } else {
-                Start-Sleep -Milliseconds 100
-            }
-        }
+        Watch-Puerto $puerto $config
     } catch {
         Write-Info "Problema con $($config.puerto): $($_.Exception.Message). Reintentando en 5 segundos..." 'Yellow'
         Start-Sleep -Seconds 5
