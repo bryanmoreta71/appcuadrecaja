@@ -52,6 +52,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.zIndex
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -174,6 +175,13 @@ fun NotaEntregaScreen(
                     onCerrar = ::cerrar,
                     sugerencias = sugerencias,
                     onOlvidar = onOlvidar,
+                    onAgregarFila = { id ->
+                        val t = plantilla.tablas.first { it.id == id }
+                        val filas = datos.filas[id].orEmpty()
+                        // Si la última fila está vacía se usa esa; si no, se agrega una nueva.
+                        if (filas.isNotEmpty() && filas.last().any { it.isNotBlank() }) onFilas(id, filas + listOf(t.columnas.map { "" }))
+                        activo = id
+                    },
                 )
                 r.avisos.forEach {
                     Spacer(Modifier.height(10.dp))
@@ -256,6 +264,7 @@ private fun Hoja(
     onCerrar: () -> Unit,
     sugerencias: (String, String) -> List<String>,
     onOlvidar: (String, String) -> Unit,
+    onAgregarFila: (String) -> Unit,
 ) {
     val paleta = LocalPaleta.current
     val imagen = remember(resultado) { resultado.imagen.asImageBitmap() }
@@ -296,6 +305,29 @@ private fun Hoja(
                         drawRoundRect(
                             paleta.principal.copy(alpha = 0.45f), Offset(0f, top), Size(size.width, h), CornerRadius(6.dp.toPx()),
                             style = Stroke(1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(5.dp.toPx(), 4.dp.toPx()))),
+                        )
+                    }
+                }
+
+                // Debajo de la última fila de cada tabla: agregar otro producto.
+                plantilla.tablas.filter { it.id != activo }.forEach { t ->
+                    val z = resultado.zonas.firstOrNull { it.id == t.id } ?: return@forEach
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .offset { IntOffset(0, ((z.abajo - 6) * escala).roundToInt() - 4.dp.roundToPx()) },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            "＋  Agregar producto",
+                            Modifier
+                                .shadow(4.dp, CircleShape, clip = false)
+                                .background(paleta.principal, CircleShape)
+                                .clickable { onAgregarFila(t.id) }
+                                .padding(horizontal = 16.dp, vertical = 7.dp),
+                            color = Color.White,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
                         )
                     }
                 }
@@ -446,6 +478,13 @@ private fun TablaEnTicket(
         onFilas(lista.toMutableList().also { l -> l[i] = t.columnas.indices.map { if (it == c) nuevo else fila.getOrElse(it) { "" } } })
     }
 
+    val focus = LocalFocusManager.current
+    fun agregarFila() {
+        // Si la última fila está vacía, el cursor va ahí en vez de agregar otra.
+        if (lista.last().any { it.isNotBlank() }) onFilas(lista + listOf(t.columnas.map { "" }))
+        else primerCampo.requestFocus()
+    }
+
     Column(
         Modifier
             .fillMaxWidth()
@@ -475,6 +514,11 @@ private fun TablaEnTicket(
                             keyboardType = if (col.numerica) KeyboardType.Number else KeyboardType.Text,
                             imeAction = ImeAction.Next,
                         ),
+                        // "Siguiente" en la última celda de la última fila agrega otro producto.
+                        keyboardActions = KeyboardActions(onNext = {
+                            if (i == lista.lastIndex && c == t.columnas.lastIndex) agregarFila()
+                            else focus.moveFocus(FocusDirection.Next)
+                        }),
                         shape = RoundedCornerShape(12.dp),
                         colors = colores(paleta.principal),
                         modifier = Modifier
@@ -496,14 +540,21 @@ private fun TablaEnTicket(
                 }
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(
-                onClick = { onFilas(lista + listOf(t.columnas.map { "" })) },
-                modifier = Modifier.weight(1f),
-                shape = CircleShape,
-            ) { Text("+ Producto") }
-            Button(onClick = onListo, modifier = Modifier.weight(1f), shape = CircleShape) { Text("Listo") }
+        // La celda de "agregar" va justo después de la última fila, como una fila más.
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .height(52.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .border(1.5.dp, paleta.principal.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
+                .background(paleta.suave.copy(alpha = 0.5f))
+                .clickable { agregarFila() },
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("＋  Agregar producto", color = paleta.oscuro, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
         }
+        Button(onClick = onListo, modifier = Modifier.fillMaxWidth().height(48.dp), shape = CircleShape) { Text("Listo") }
     }
 }
 
