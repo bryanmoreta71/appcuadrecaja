@@ -26,6 +26,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
@@ -77,13 +80,18 @@ fun PlantillasScreen(
     onNueva: () -> Unit,
     onDuplicar: (Plantilla) -> Unit,
     onEliminar: (Plantilla) -> Unit,
+    onActualizarComputadora: (Plantilla) -> Unit = {},
+    estado: String = "",
+    enviando: Boolean = false,
 ) {
     var porEliminar by remember { mutableStateOf<Plantilla?>(null) }
+    var menu by remember { mutableStateOf<String?>(null) }
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text("Las plantillas son el diseño de la nota de entrega. Lo que agregue aquí aparece para llenar en Nota de entrega.", color = Gris)
+        EstadoImpresion(estado)
         plantillas.forEach { p ->
             Card(
                 onClick = { onEditar(p) },
@@ -101,11 +109,26 @@ fun PlantillasScreen(
                         Text(p.nombre, style = MaterialTheme.typography.titleMedium)
                         Text("${p.elementos.size} elementos · ${p.campos.size} campos para llenar", color = Gris, fontSize = 14.sp)
                     }
-                }
-                Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, bottom = 6.dp), horizontalArrangement = Arrangement.End) {
-                    TextButton(onClick = { onDuplicar(p) }) { Text("Duplicar") }
-                    if (plantillas.size > 1) TextButton(onClick = { porEliminar = p }) { Text("Eliminar", color = Color(0xFFB91C1C)) }
-                    TextButton(onClick = { onEditar(p) }) { Text("Editar", fontWeight = FontWeight.Bold) }
+                    // Opciones de la plantilla, sin entrar a editarla.
+                    Box {
+                        IconButton(onClick = { menu = p.id }, enabled = !enviando) {
+                            Icon(Icons.Filled.MoreVert, contentDescription = "Opciones de ${p.nombre}", tint = Gris)
+                        }
+                        DropdownMenu(expanded = menu == p.id, onDismissRequest = { menu = null }) {
+                            DropdownMenuItem(
+                                text = { Text("💻   Actualizar en la computadora", fontSize = 16.sp) },
+                                onClick = { menu = null; onActualizarComputadora(p) },
+                            )
+                            DropdownMenuItem(text = { Text("✏️   Editar", fontSize = 16.sp) }, onClick = { menu = null; onEditar(p) })
+                            DropdownMenuItem(text = { Text("⧉   Duplicar", fontSize = 16.sp) }, onClick = { menu = null; onDuplicar(p) })
+                            if (plantillas.size > 1) {
+                                DropdownMenuItem(
+                                    text = { Text("🗑   Eliminar", fontSize = 16.sp, color = Color(0xFFB91C1C)) },
+                                    onClick = { menu = null; porEliminar = p },
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }

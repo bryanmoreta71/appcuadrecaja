@@ -64,6 +64,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.cuadrecaja.app.impresion.EscPos
+import com.cuadrecaja.app.impresion.PaqueteComputadora
 import com.cuadrecaja.app.impresion.Renderizador
 import com.cuadrecaja.app.plantillas.Datos
 import com.cuadrecaja.app.plantillas.Plantilla
@@ -108,6 +109,9 @@ private class Trabajo(
     val guardarEnHistorial: Boolean = true,
     /** Se llama cuando se imprimió bien (por ejemplo, para recordar lo escrito en la nota). */
     val alImprimir: (() -> Unit)? = null,
+    /** Solo va a la computadora (por ejemplo, una plantilla para el programa de Windows). */
+    val soloComputadora: Boolean = false,
+    val mensajeOk: String? = null,
 )
 
 class MainActivity : ComponentActivity() {
@@ -333,6 +337,9 @@ class MainActivity : ComponentActivity() {
                 onNueva = { ir(Screen.Editor(impresion.nuevaPlantilla().id)) },
                 onDuplicar = impresion::duplicar,
                 onEliminar = impresion::eliminar,
+                onActualizarComputadora = ::actualizarEnComputadora,
+                estado = printStatus,
+                enviando = printing,
             )
             is Screen.Editor -> {
                 val plantilla = impresion.plantilla(current.id)
@@ -450,13 +457,38 @@ class MainActivity : ComponentActivity() {
             enableBluetoothLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
             return
         }
-        val device = printer.findPrinter()
+        val soloComputadora = pendiente?.soloComputadora == true
+        val device = if (soloComputadora) printer.findComputer() else printer.findPrinter()
         if (device == null) {
+            if (soloComputadora) {
+                val computadoras = printer.pairedDevices().filter(printer::esComputadora)
+                if (computadoras.isEmpty()) {
+                    printStatus = "No hay ninguna computadora emparejada con este celular. Emparéjela en los ajustes de Bluetooth."
+                    pendiente = null
+                } else {
+                    pickerDevices = computadoras
+                }
+                return
+            }
             pickerDevices = printer.pairedDevices()
             startScan()
             return
         }
         print(device)
+    }
+
+    /** Manda la plantilla al programa "Nota de entrega" de la computadora. */
+    private fun actualizarEnComputadora(p: Plantilla) {
+        val paquete = PaqueteComputadora.crear(this, p, if (impresion.papelMm == 58) 384 else 576, impresion.memoria)
+        imprimir(
+            Trabajo(
+                "Plantilla: ${p.nombre}", TipoImpresion.NOTA, 1, paquete.datos, null, null,
+                guardarEnHistorial = false,
+                soloComputadora = true,
+                mensajeOk = "✓ \"${p.nombre}\" actualizada en la computadora" +
+                    paquete.avisos.joinToString("") { "\n$it" },
+            ),
+        )
     }
 
     @SuppressLint("MissingPermission")
@@ -469,9 +501,13 @@ class MainActivity : ComponentActivity() {
     @SuppressLint("MissingPermission")
     private fun print(device: BluetoothDevice) {
         val t = pendiente ?: return
+        if (t.soloComputadora && !printer.esComputadora(device)) {
+            printStatus = "Eso es una impresora. Para actualizar la plantilla elija la computadora."
+            return
+        }
         printing = true
         val nombre = device.name ?: device.address
-        printStatus = if (t.copias > 1) "Imprimiendo ${t.copias} copias en $nombre…" else "Imprimiendo en $nombre…"
+        printStatus = if (t.soloComputadora) "Enviando a $nombre…" else if (t.copias > 1) "Imprimiendo ${t.copias} copias en $nombre…" else "Imprimiendo en $nombre…"
         lifecycleScope.launch {
             printStatus = try {
                 val entrega = printer.print(device, t.datos)
@@ -483,6 +519,9 @@ class MainActivity : ComponentActivity() {
                 pendiente = null
                 t.alImprimir?.invoke()
                 when {
+                    t.soloComputadora && entrega == BluetoothPrinter.Entrega.SIN_CONFIRMAR ->
+                        "La computadora no respondió. Actualice el receptor de Windows (zip nuevo) y vuelva a intentar."
+                    t.mensajeOk != null -> t.mensajeOk
                     entrega == BluetoothPrinter.Entrega.SIN_CONFIRMAR ->
                         "✓ Enviado a la computadora. (Actualice el receptor de Windows para que confirme la impresión.)"
                     t.copias > 1 -> "✓ ${t.copias} copias impresas"
@@ -553,7 +592,7 @@ class MainActivity : ComponentActivity() {
     private fun PrinterPicker(devices: List<BluetoothDevice>) {
         AlertDialog(
             onDismissRequest = { pickerDevices = null },
-            title = { Text("Elija la impresora") },
+            title = { Text(if (pendiente?.soloComputadora == true) "Elija la computadora" else "Elija la impresora") },
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
                     if (devices.isNotEmpty()) {

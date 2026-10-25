@@ -323,7 +323,12 @@ fun reemplazarCampos(texto: String, plantilla: Plantilla, datos: Datos, extras: 
     if (!texto.contains('{')) return texto
     val valores = HashMap<String, String>()
     extras.forEach { (k, v) -> valores[k.lowercase()] = v }
-    plantilla.campos.forEach { c -> valores[c.etiqueta.trim().lowercase()] = datos.campos[c.id] ?: c.valorInicial }
+    plantilla.campos.forEach { c ->
+        val clave = c.etiqueta.trim().lowercase()
+        val v = datos.campos[c.id]?.takeIf { it.isNotBlank() } ?: c.valorInicial
+        // Un campo Fecha u Hora vacío deja la fecha u hora automática de {fecha}/{hora}.
+        if (v.isNotBlank() || clave !in valores) valores[clave] = v
+    }
     return Regex("\\{([^{}]+)\\}").replace(texto) { m -> valores[m.groupValues[1].trim().lowercase()] ?: m.value }
 }
 

@@ -65,6 +65,15 @@ en `Iniciar receptor.bat`. Recibe el ticket del celular por Bluetooth (puerto CO
 de Windows) y lo imprime directo en la impresora, sin ventana de imprimir.
 Los pasos están en [`windows/LEAME.txt`](windows/LEAME.txt).
 
+### Nota de entrega en la computadora
+
+En **Plantillas**, los tres puntos de cada plantilla tienen **Actualizar en la computadora**:
+la plantilla viaja por Bluetooth al receptor, que la guarda en `windows/plantillas/`. Con
+doble clic en `Nota de entrega.bat` se abre un programa de consola con colores que pregunta
+solo los campos para llenar y los productos (con sugerencias al escribir), dibuja la nota con
+la plantilla (`cuadre-nota.cs`: mismo diseño que el celular, QR y Code 128 incluidos) y la
+imprime en la impresora configurada.
+
 ## Compilar
 
 - Abra la carpeta en Android Studio y presione ▶️, o

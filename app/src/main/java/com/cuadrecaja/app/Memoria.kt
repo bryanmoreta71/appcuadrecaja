@@ -41,6 +41,10 @@ class Memoria(private val archivo: File) {
             .map { it.first.texto }
     }
 
+    /** Todo lo guardado para un campo, lo más usado primero (para mandarlo a la computadora). */
+    fun textos(clave: String, maximo: Int = 150): List<String> =
+        datos[clave].orEmpty().sortedWith(compareByDescending<Entrada> { it.usos }.thenByDescending { it.ultimo }).take(maximo).map { it.texto }
+
     fun recordar(clave: String, texto: String, ahora: Long = System.currentTimeMillis()) {
         val t = texto.trim()
         if (t.isEmpty()) return

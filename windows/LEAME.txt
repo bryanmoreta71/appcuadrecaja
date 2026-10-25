@@ -35,6 +35,20 @@ Las notas de entrega del modo impresion de la app tambien salen por aqui, con su
 imagenes, QR y codigos de barras. Si piden varias copias, se corta entre cada una.
 En la app, en Ajustes, el ancho del papel debe ser el mismo que el de la impresora.
 
+NOTA DE ENTREGA DESDE LA COMPUTADORA (para los companeros)
+----------------------------------------------------------
+1. En el celular: Plantillas > tres puntos de la plantilla > "Actualizar en la computadora".
+   (El receptor debe estar funcionando.) Cada vez que cambie la plantilla en el celular,
+   vuelva a tocar "Actualizar en la computadora".
+2. En la computadora: doble clic en "Nota de entrega.bat".
+   Pregunta solo lo que hay que llenar (por ejemplo quien retira y los productos con
+   su cantidad), la fecha y la hora se ponen solas, y la nota sale impresa con el diseno
+   de la plantilla. Mientras se escribe aparecen sugerencias de lo que ya se escribio:
+   Tab o flecha derecha completa, flechas arriba/abajo eligen, Enter acepta.
+   En productos, dejar el producto en blanco y Enter termina la lista.
+- Las plantillas quedan en la carpeta "plantillas" y lo escrito en memoria-notas.json.
+- Para quitar una plantilla de la computadora, borre su archivo de la carpeta "plantillas".
+
 USO DIARIO
 ----------
 1. Doble clic en "Iniciar receptor.bat" y deje la ventana abierta (puede minimizarla).

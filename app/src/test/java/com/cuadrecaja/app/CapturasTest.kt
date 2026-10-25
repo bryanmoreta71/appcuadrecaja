@@ -33,6 +33,7 @@ import com.cuadrecaja.app.plantillas.Letra
 import com.cuadrecaja.app.plantillas.Plantilla
 import com.cuadrecaja.app.plantillas.PlantillasPorDefecto
 import com.cuadrecaja.app.plantillas.TipoBarras
+import com.cuadrecaja.app.Memoria
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -140,6 +141,25 @@ class CapturasTest {
         val raster = EscPos.imagen(r1.imagen.width, r1.imagen.height, Renderizador.puntosNegros(r1.imagen))
         println("Nota 80 mm: ${r1.imagen.height} filas, ${raster.size} bytes")
         File(dir, "nota_2copias.bin").writeBytes(EscPos.trabajo(raster, 2))
+        // Paquetes para el programa de Windows, y cómo debe verse la nota con datos de ejemplo.
+        val mem = Memoria(File(dir, "memoria_prueba.json")).apply {
+            recordar(Memoria.claveCampo("Nombre del que retira"), "Bernardo Guillén")
+            recordar(Memoria.claveColumna("Producto"), "Salentine vino tinto 750")
+        }
+        val conQr = nota.copy(
+            elementos = listOf(Elemento.Imagen(archivo = "logo.png", anchoPorcentaje = 50)) + nota.elementos + listOf(
+                Elemento.Qr(contenido = "{Establecimiento} / {Nombre del que retira}", densidad = DensidadQr.ESPESO, tamanoPorcentaje = 40, mostrarTexto = true),
+                Elemento.Barras(contenido = "ENTREGA-{fecha}", tipo = TipoBarras.CODE128, alto = 70),
+                Elemento.Texto(texto = "Gracias {Nombre del que retira}", estilo = Estilo(letra = Letra.CLASICA, tamano = 26, cursiva = true, alineacion = Alineacion.CENTRO)),
+            ),
+        )
+        val paquete = com.cuadrecaja.app.impresion.PaqueteComputadora.crear(ctx, conQr, 576, mem)
+        File(dir, "paquete_nota.bin").writeBytes(paquete.datos)
+        val datosQr = Datos(
+            campos = mapOf(nota.campos[2].id to "Tienda Doña Rosa", nota.campos[3].id to "Carlos Pérez"),
+            filas = mapOf(nota.tablas[0].id to listOf(listOf("12", "Agua 500 ml"), listOf("3", "Arroz 5 lb (saco grande con descripción larga)"), listOf("1", "Aceite"))),
+        )
+        guardar("celular_paquete_nota", Renderizador(ctx).dibujar(conQr, datosQr, 576, fecha).imagen)
         File(dir, "nota_empaquetada.bin").writeBytes(BluetoothPrinter.empaquetar(EscPos.trabajo(raster, 2)))
         File(dir, "cuadre.bin").writeBytes(BluetoothPrinter.buildEscPos(buildReport(mapOf("b20" to 5), fecha)))
     }
@@ -252,7 +272,18 @@ class CapturasTest {
         assertEquals(150, vm.plantillas.first().largoMm)
         pantalla("10c_editor_largo")
 
+        // Plantillas: tres puntos de la plantilla > "Actualizar en la computadora".
+        org.robolectric.Shadows.shadowOf(compose.activity.application).grantPermissions(android.Manifest.permission.BLUETOOTH_CONNECT)
+        val bt = compose.activity.getSystemService(android.bluetooth.BluetoothManager::class.java).adapter
+        org.robolectric.Shadows.shadowOf(bt).setEnabled(true)
         compose.activity.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
+        compose.onNodeWithContentDescription("Más opciones").performClick()
+        compose.onNodeWithText("🎨   Plantillas").performClick()
+        compose.onNodeWithContentDescription("Opciones de Nota de entrega").performClick()
+        compose.onNodeWithText("💻   Actualizar en la computadora").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("No hay ninguna computadora emparejada", substring = true).assertExists()
+        pantalla("12_plantillas_sin_computadora")
         compose.activity.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
         compose.onNodeWithText("Más opciones", useUnmergedTree = true)
         pantalla("11_vuelta_inicio")

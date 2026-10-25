@@ -60,6 +60,12 @@ class BluetoothPrinter(private val context: Context) {
         return printers.singleOrNull() ?: devices.singleOrNull()
     }
 
+    /** La computadora con el receptor: la guardada si es computadora, o la única emparejada. */
+    fun findComputer(): BluetoothDevice? {
+        val computadoras = pairedDevices().filter(::esComputadora)
+        return computadoras.firstOrNull { it.address == savedAddress } ?: computadoras.singleOrNull()
+    }
+
     @SuppressLint("MissingPermission")
     fun looksLikePrinter(device: BluetoothDevice): Boolean {
         val major = device.bluetoothClass?.majorDeviceClass
