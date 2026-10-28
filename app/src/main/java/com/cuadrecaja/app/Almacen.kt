@@ -46,7 +46,7 @@ class AlmacenPlantillas(context: Context) {
     }
 }
 
-enum class TipoImpresion(val etiqueta: String) { CUADRE("Cuadre de caja"), MENSAJE("Mensaje"), NOTA("Nota de entrega") }
+enum class TipoImpresion(val etiqueta: String) { CUADRE("Cuadre de caja"), MENSAJE("Mensaje"), NOTA("Nota de entrega"), STOCK("Lista de códigos") }
 
 data class EntradaHistorial(
     val id: String,

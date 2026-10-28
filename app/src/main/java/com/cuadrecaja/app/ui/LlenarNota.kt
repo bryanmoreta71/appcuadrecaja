@@ -467,7 +467,9 @@ private fun TablaEnTicket(
     onOlvidar: (String, String) -> Unit,
 ) {
     val paleta = LocalPaleta.current
-    val lista = filas.ifEmpty { listOf(t.columnas.map { "" }) }
+    val listaActual = filas.ifEmpty { listOf(t.columnas.map { "" }) }
+    // La versión más reciente, para que una celda ya en pantalla no escriba sobre filas viejas.
+    val lista by rememberUpdatedState(listaActual)
     var foco by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     val primerCampo = remember { FocusRequester() }
     // Al abrir la tabla o agregar un producto, el cursor va a la fila nueva.

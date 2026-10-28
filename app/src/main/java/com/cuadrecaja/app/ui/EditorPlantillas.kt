@@ -43,6 +43,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -258,7 +259,9 @@ private fun Ficha(texto: String, activa: Boolean, onCambio: (Boolean) -> Unit) {
 }
 
 @Composable
-private fun EditorTabla(t: Elemento.Tabla, onCambio: (Elemento) -> Unit) {
+private fun EditorTabla(tabla: Elemento.Tabla, onCambio: (Elemento) -> Unit) {
+    // La versión más reciente, para que los campos ya en pantalla no trabajen con una tabla vieja.
+    val t by rememberUpdatedState(tabla)
     Titulo("Columnas")
     t.columnas.forEachIndexed { i, col ->
         fun cambiar(c: Columna) = onCambio(t.copy(columnas = t.columnas.mapIndexed { j, x -> if (j == i) c else x }))

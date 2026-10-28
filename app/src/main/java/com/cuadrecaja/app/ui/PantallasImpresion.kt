@@ -148,6 +148,7 @@ private fun icono(t: TipoImpresion) = when (t) {
     TipoImpresion.CUADRE -> "💵"
     TipoImpresion.MENSAJE -> "✉️"
     TipoImpresion.NOTA -> "📦"
+    TipoImpresion.STOCK -> "🏷️"
 }
 
 @Composable

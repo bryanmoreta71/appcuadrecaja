@@ -1,6 +1,12 @@
 package com.cuadrecaja.app.stock
 
 import android.content.Context
+import com.cuadrecaja.app.plantillas.Alineacion
+import com.cuadrecaja.app.plantillas.Borde
+import com.cuadrecaja.app.plantillas.Elemento
+import com.cuadrecaja.app.plantillas.Estilo
+import com.cuadrecaja.app.plantillas.Grosor
+import com.cuadrecaja.app.plantillas.Plantilla
 import com.cuadrecaja.app.plantillas.TipoBarras
 import com.cuadrecaja.app.plantillas.nuevoId
 import org.json.JSONArray
@@ -45,6 +51,24 @@ fun digitoEanValido(t: String): Boolean {
     val datos = t.dropLast(1).reversed()
     val suma = datos.mapIndexed { i, ch -> (ch - '0') * if (i % 2 == 0) 3 else 1 }.sum()
     return (10 - suma % 10) % 10 == t.last() - '0'
+}
+
+/** La lista para imprimir, sin diseño: nombre, código de barras y números, uno tras otro. */
+fun plantillaImpresion(l: ListaStock): Plantilla {
+    val elementos = mutableListOf<Elemento>(
+        Elemento.Texto(texto = l.nombre, estilo = Estilo(tamano = 30, negrita = true, alineacion = Alineacion.CENTRO)),
+        Elemento.Texto(texto = "{fecha}  {hora}", estilo = Estilo(tamano = 20, alineacion = Alineacion.CENTRO)),
+        Elemento.Separador(borde = Borde.LINEA, grosor = 2),
+    )
+    l.codigos.filter { it.codigo.isNotBlank() }.forEachIndexed { i, c ->
+        if (i > 0) elementos += Elemento.Separador(borde = Borde.GUIONES, grosor = 2)
+        elementos += Elemento.Espacio(alto = 8)
+        elementos += Elemento.Texto(texto = "${i + 1}. " + c.nombre.ifBlank { "Código ${i + 1}" }, estilo = Estilo(tamano = 24, negrita = true))
+        elementos += Elemento.Espacio(alto = 6)
+        elementos += Elemento.Barras(contenido = c.codigo, tipo = tipoDe(c), alto = 80, grosor = Grosor.NORMAL, mostrarTexto = true)
+        elementos += Elemento.Espacio(alto = 10)
+    }
+    return Plantilla(nombre = l.nombre, elementos = elementos)
 }
 
 object StockJson {

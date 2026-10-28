@@ -43,6 +43,8 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -51,6 +53,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -93,6 +96,9 @@ fun StockListasScreen(
     onEditar: (ListaStock) -> Unit,
     onEliminar: (ListaStock) -> Unit,
     onNueva: () -> Unit,
+    onImprimir: (ListaStock) -> Unit = {},
+    estado: String = "",
+    imprimiendo: Boolean = false,
 ) {
     var menu by remember { mutableStateOf<String?>(null) }
     var porEliminar by remember { mutableStateOf<ListaStock?>(null) }
@@ -101,6 +107,7 @@ fun StockListasScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text("Listas de códigos de barras para pasar por el escáner, uno tras otro.", color = Gris)
+        EstadoImpresion(estado)
         if (listas.isEmpty()) {
             Tarjeta {
                 Text(
@@ -136,6 +143,11 @@ fun StockListasScreen(
                             Icon(Icons.Filled.MoreVert, contentDescription = "Opciones de ${l.nombre}", tint = Gris)
                         }
                         DropdownMenu(expanded = menu == l.id, onDismissRequest = { menu = null }) {
+                            DropdownMenuItem(
+                                text = { Text("🖨   Imprimir lista", fontSize = 16.sp) },
+                                enabled = !imprimiendo && l.codigos.any { it.codigo.isNotBlank() },
+                                onClick = { menu = null; onImprimir(l) },
+                            )
                             DropdownMenuItem(text = { Text("✏️   Editar", fontSize = 16.sp) }, onClick = { menu = null; onEditar(l) })
                             DropdownMenuItem(
                                 text = { Text("🗑   Eliminar", fontSize = 16.sp, color = Color(0xFFB91C1C)) },
@@ -175,7 +187,10 @@ private fun opcionesEscaner() = ScanOptions()
     .setOrientationLocked(false)
 
 @Composable
-fun StockEditorScreen(lista: ListaStock, onCambio: (ListaStock) -> Unit, onEmpezar: () -> Unit) {
+fun StockEditorScreen(listaRecibida: ListaStock, onCambio: (ListaStock) -> Unit, onEmpezar: () -> Unit) {
+    // Siempre la versión más reciente: los botones y campos que ya estaban en pantalla no deben
+    // trabajar con una lista vieja (eso borraba el código recién escaneado al editar el anterior).
+    val lista by rememberUpdatedState(listaRecibida)
     var enfocar by remember { mutableStateOf<String?>(null) }
     // Qué código se está reemplazando al escanear (null = uno nuevo).
     var reemplazar by remember { mutableStateOf<String?>(null) }
@@ -361,20 +376,38 @@ private fun ChipTipo(texto: String, elegido: Boolean, onClick: () -> Unit) {
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun StockSecuenciaScreen(lista: ListaStock, indice: Int, onIndice: (Int) -> Unit, onTerminar: () -> Unit, onEditar: () -> Unit) {
+fun StockSecuenciaScreen(
+    lista: ListaStock,
+    indice: Int,
+    onIndice: (Int) -> Unit,
+    onTerminar: () -> Unit,
+    onEditar: () -> Unit,
+    brilloManual: Boolean = false,
+    brillo: Float = 0.6f,
+    fondoNegro: Boolean = false,
+    onPantalla: (manual: Boolean, brillo: Float, negro: Boolean) -> Unit = { _, _, _ -> },
+) {
     val paleta = LocalPaleta.current
     val codigos = lista.codigos.filter { it.codigo.isNotBlank() }
+    var verAjustes by remember { mutableStateOf(false) }
+    val fondo = if (fondoNegro) Color.Black else Color.White
+    val texto = if (fondoNegro) Color.White else Color(0xFF111827)
+    val textoSuave = if (fondoNegro) Color(0xFF9CA3AF) else Gris
 
-    // Brillo al máximo y pantalla siempre encendida, para que el escáner lea bien.
+    // Pantalla siempre encendida; el brillo, el que elija la persona (o el del celular).
     val actividad = LocalContext.current as? Activity
     DisposableEffect(actividad) {
-        val ventana = actividad?.window
-        val antes = ventana?.attributes?.screenBrightness
-        ventana?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        ventana?.attributes = ventana?.attributes?.apply { screenBrightness = 1f }
+        actividad?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         onDispose {
-            ventana?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            ventana?.attributes = ventana?.attributes?.apply { screenBrightness = antes ?: WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE }
+            val v = actividad?.window
+            v?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            v?.attributes = v?.attributes?.apply { screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE }
+        }
+    }
+    LaunchedEffect(brilloManual, brillo) {
+        val v = actividad?.window
+        v?.attributes = v?.attributes?.apply {
+            screenBrightness = if (brilloManual) brillo else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
         }
     }
 
@@ -393,12 +426,16 @@ fun StockSecuenciaScreen(lista: ListaStock, indice: Int, onIndice: (Int) -> Unit
     LaunchedEffect(actual) { if (pager.currentPage != actual) pager.animateScrollToPage(actual) }
     LaunchedEffect(pager) { snapshotFlow { pager.settledPage }.collect { if (it != indice) onIndice(it) } }
 
-    Column(Modifier.fillMaxSize().background(Color.White)) {
+    Column(Modifier.fillMaxSize().background(fondo)) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(lista.nombre, Modifier.weight(1f), color = Gris, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("${actual + 1} de ${codigos.size}", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = paleta.oscuro)
+                Text(lista.nombre, Modifier.weight(1f), color = textoSuave, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("${actual + 1} de ${codigos.size}", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = if (fondoNegro) Color.White else paleta.oscuro)
+                IconButton(onClick = { verAjustes = !verAjustes }, modifier = Modifier.semantics { contentDescription = "Brillo y fondo" }) {
+                    Text("☀", fontSize = 22.sp, color = texto)
+                }
             }
+            if (verAjustes) AjustesPantalla(brilloManual, brillo, fondoNegro, texto, textoSuave, onPantalla)
             Spacer(Modifier.height(8.dp))
             LinearProgressIndicator(
                 progress = { (actual + 1) / codigos.size.toFloat() },
@@ -415,13 +452,15 @@ fun StockSecuenciaScreen(lista: ListaStock, indice: Int, onIndice: (Int) -> Unit
             ) {
                 Text(
                     c.nombre.ifBlank { "Código ${pagina + 1}" },
+                    color = texto,
                     style = MaterialTheme.typography.headlineMedium,
                     textAlign = TextAlign.Center,
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Spacer(Modifier.height(24.dp))
-                BoxWithConstraints(Modifier.fillMaxWidth()) {
+                // El código va siempre en un recuadro blanco: el escáner necesita barras negras sobre blanco.
+                BoxWithConstraints(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Color.White).padding(vertical = 12.dp)) {
                     val ancho = constraints.maxWidth
                     val alto = with(LocalDensity.current) { 170.dp.roundToPx() }
                     val bitmap = remember(c.codigo, tipoDe(c), ancho) { CodigoBarras.dibujar(c.codigo, tipoDe(c), ancho, alto) }
@@ -443,8 +482,8 @@ fun StockSecuenciaScreen(lista: ListaStock, indice: Int, onIndice: (Int) -> Unit
                     }
                 }
                 Spacer(Modifier.height(10.dp))
-                Text(c.codigo, fontFamily = FontFamily.Monospace, fontSize = 22.sp, letterSpacing = 2.sp)
-                Text(tipoDe(c).etiqueta, color = Gris, fontSize = 13.sp)
+                Text(c.codigo, fontFamily = FontFamily.Monospace, fontSize = 22.sp, letterSpacing = 2.sp, color = texto)
+                Text(tipoDe(c).etiqueta, color = textoSuave, fontSize = 13.sp)
             }
         }
 
@@ -472,10 +511,51 @@ fun StockSecuenciaScreen(lista: ListaStock, indice: Int, onIndice: (Int) -> Unit
                 "También puede deslizar o usar los botones de volumen",
                 Modifier.fillMaxWidth(),
                 textAlign = TextAlign.Center,
-                color = Gris,
+                color = textoSuave,
                 fontSize = 13.sp,
             )
             Spacer(Modifier.width(1.dp))
+        }
+    }
+}
+
+@Composable
+private fun AjustesPantalla(
+    manual: Boolean,
+    brillo: Float,
+    negro: Boolean,
+    texto: Color,
+    textoSuave: Color,
+    onPantalla: (Boolean, Float, Boolean) -> Unit,
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(top = 10.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(if (negro) Color(0xFF1F2937) else Color(0xFFF3F4F6))
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Brillo automático del celular", Modifier.weight(1f), color = texto)
+            Switch(checked = !manual, onCheckedChange = { onPantalla(!it, brillo, negro) })
+        }
+        if (manual) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("☀", color = textoSuave, fontSize = 14.sp)
+                Slider(
+                    value = brillo,
+                    onValueChange = { onPantalla(true, it, negro) },
+                    valueRange = 0.02f..1f,
+                    modifier = Modifier.weight(1f).padding(horizontal = 8.dp).semantics { contentDescription = "Nivel de brillo" },
+                )
+                Text("☀", color = texto, fontSize = 22.sp)
+                Text(" ${(brillo * 100).toInt()}%", color = texto, fontWeight = FontWeight.Bold, modifier = Modifier.width(48.dp))
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Fondo negro", Modifier.weight(1f), color = texto)
+            Switch(checked = negro, onCheckedChange = { onPantalla(manual, brillo, it) })
         }
     }
 }

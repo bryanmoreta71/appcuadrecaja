@@ -84,7 +84,9 @@ import com.cuadrecaja.app.ui.ReportScreen
 import com.cuadrecaja.app.ui.StockEditorScreen
 import com.cuadrecaja.app.ui.StockListasScreen
 import com.cuadrecaja.app.ui.StockSecuenciaScreen
+import com.cuadrecaja.app.stock.ListaStock
 import com.cuadrecaja.app.stock.StockViewModel
+import com.cuadrecaja.app.stock.plantillaImpresion
 import com.cuadrecaja.app.ui.theme.LocalPaleta
 import com.cuadrecaja.app.ui.theme.TemaApp
 import kotlinx.coroutines.Job
@@ -423,6 +425,9 @@ class MainActivity : ComponentActivity() {
                 onEditar = { ir(Screen.StockEditar(it.id)) },
                 onEliminar = { stock.eliminar(it.id) },
                 onNueva = { ir(Screen.StockEditar(stock.nueva().id)) },
+                onImprimir = ::imprimirListaStock,
+                estado = printStatus,
+                imprimiendo = printing,
             )
             is Screen.StockEditar -> {
                 val l = stock.lista(current.id)
@@ -441,6 +446,10 @@ class MainActivity : ComponentActivity() {
                     onIndice = { indiceStock = it.coerceIn(0, maxOf(0, l.codigos.count { c -> c.codigo.isNotBlank() } - 1)) },
                     onTerminar = ::atras,
                     onEditar = { ir(Screen.StockEditar(l.id)) },
+                    brilloManual = stock.brilloManual,
+                    brillo = stock.brillo,
+                    fondoNegro = stock.fondoNegro,
+                    onPantalla = stock::cambiarPantalla,
                 )
             }
             Screen.Ajustes -> AjustesScreen(
@@ -484,6 +493,19 @@ class MainActivity : ComponentActivity() {
                 plantilla.nombre + (principal?.let { ": $it" } ?: ""),
                 TipoImpresion.NOTA, copias, EscPos.trabajo(raster, copias), null, img,
                 alImprimir = { impresion.recordarNota(plantilla, datos) },
+            ),
+        )
+    }
+
+    /** La lista de códigos impresa: nombre, código de barras y números de cada uno. */
+    private fun imprimirListaStock(l: ListaStock) {
+        val r = renderizar(plantillaImpresion(l), Datos())
+        val img = r.imagen
+        val raster = EscPos.imagen(img.width, img.height, Renderizador.puntosNegros(img))
+        imprimir(
+            Trabajo(
+                "Lista: ${l.nombre}", TipoImpresion.STOCK, 1, EscPos.trabajo(raster, 1), null, img,
+                mensajeOk = if (r.avisos.isEmpty()) null else "✓ Impreso\n" + r.avisos.joinToString("\n"),
             ),
         )
     }
