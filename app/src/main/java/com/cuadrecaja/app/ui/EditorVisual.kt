@@ -2,7 +2,10 @@ package com.cuadrecaja.app.ui
 
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import android.content.Context
 import android.net.Uri
+import android.os.VibrationEffect
+import android.os.Vibrator
 import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -69,6 +72,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
@@ -87,6 +91,9 @@ import com.cuadrecaja.app.plantillas.Estilo
 import com.cuadrecaja.app.plantillas.FormaCampo
 import com.cuadrecaja.app.plantillas.Plantilla
 import com.cuadrecaja.app.plantillas.TipoCampo
+import com.cuadrecaja.app.plantillas.admiteX
+import com.cuadrecaja.app.plantillas.reubicar
+import com.cuadrecaja.app.plantillas.sinPosicion
 import com.cuadrecaja.app.plantillas.nuevoId
 import com.cuadrecaja.app.ui.theme.LocalPaleta
 import kotlinx.coroutines.Dispatchers
@@ -153,16 +160,103 @@ private fun conIdNuevo(e: Elemento): Elemento = when (e) {
     is Elemento.Firma -> e.copy(id = nuevoId())
 }
 
-/** Cambia la alineación de los elementos que la tienen (al arrastrarlos a un lado). */
-private fun conAlineacion(e: Elemento, a: Alineacion): Elemento = when (e) {
-    is Elemento.Texto -> e.copy(estilo = e.estilo.copy(alineacion = a))
-    is Elemento.Imagen -> e.copy(alineacion = a)
-    is Elemento.Qr -> e.copy(alineacion = a)
-    is Elemento.Barras -> e.copy(alineacion = a)
-    else -> e
+private fun alineacionDe(e: Elemento): Alineacion? = when (e) {
+    is Elemento.Texto -> e.estilo.alineacion
+    is Elemento.Imagen -> e.alineacion
+    is Elemento.Qr -> e.alineacion
+    is Elemento.Barras -> e.alineacion
+    else -> null
 }
 
-private data class Arrastre(val id: String, val tomadoEn: Float, val y: Float, val xInicio: Float, val x: Float)
+/** Al arrastrar: dónde se tomó (respecto a la esquina del elemento) y dónde está el dedo, en puntos. */
+private data class Arrastre(val id: String, val tomadoX: Float, val tomadoY: Float, val x: Float, val y: Float)
+
+/** Guía de alineación que se muestra al arrastrar: una línea de (x1, y1) a (x2, y2). */
+private data class Guia(val clave: String, val x1: Float, val y1: Float, val x2: Float, val y2: Float)
+
+/** Dónde queda lo que se arrastra (ya pegado a las guías) y qué guías se muestran. */
+private data class Colocacion(val izquierda: Float, val arriba: Float, val guias: List<Guia>)
+
+/**
+ * Pega el elemento a lo que tiene cerca: a la misma altura que otro (alineación horizontal)
+ * o al mismo borde o centro que el de arriba o abajo (alineación vertical).
+ */
+private fun colocar(
+    z: Renderizador.Zona,
+    izquierda: Float,
+    arriba: Float,
+    otras: List<Renderizador.Zona>,
+    anchoPapel: Float,
+    umbral: Float,
+    aLosLados: Boolean,
+): Colocacion {
+    val w = z.derecha - z.izquierda
+    val h = maxOf(z.abajo - z.arriba, 16f)
+    var l = izquierda
+    var t = arriba
+    val guias = mutableListOf<Guia>()
+    val anchoCompleto = anchoPapel * 0.9f
+
+    // Misma altura que un elemento que está a un lado (arriba, centro o abajo).
+    var mejorY: Triple<Float, Renderizador.Zona, String>? = null
+    for (o in otras) {
+        if (o.derecha - o.izquierda >= anchoCompleto) continue
+        val oh = maxOf(o.abajo - o.arriba, 16f)
+        listOf(
+            Triple(o.arriba - t, "arriba", o.arriba),
+            Triple((o.arriba + oh / 2) - (t + h / 2), "centro", o.arriba + oh / 2),
+            Triple(o.abajo - (t + h), "abajo", o.abajo),
+        ).forEach { (d, tipo, _) ->
+            if (kotlin.math.abs(d) <= umbral && (mejorY == null || kotlin.math.abs(d) < kotlin.math.abs(mejorY!!.first))) mejorY = Triple(d, o, tipo)
+        }
+    }
+    mejorY?.let { (d, o, tipo) ->
+        t += d
+        val yGuia = when (tipo) { "arriba" -> t; "centro" -> t + h / 2; else -> t + h }
+        guias += Guia("h:${o.id}:$tipo", minOf(l, o.izquierda) - 6, yGuia, maxOf(l + w, o.derecha) + 6, yGuia)
+    }
+
+    // Mismo borde izquierdo, centro o borde derecho que uno de arriba o de abajo.
+    if (aLosLados) {
+        var mejorX: Triple<Float, Renderizador.Zona, String>? = null
+        var distanciaMejor = Float.MAX_VALUE
+        for (o in otras) {
+            if (o.derecha - o.izquierda >= anchoCompleto) continue
+            val lejos = when {
+                o.abajo <= t -> t - o.abajo
+                o.arriba >= t + h -> o.arriba - (t + h)
+                else -> continue // está al lado, no arriba ni abajo
+            }
+            listOf(
+                o.izquierda - l to "izquierda",
+                (o.izquierda + o.derecha) / 2 - (l + w / 2) to "centro",
+                o.derecha - (l + w) to "derecha",
+            ).forEach { (d, tipo) ->
+                val a = kotlin.math.abs(d)
+                if (a <= umbral && (mejorX == null || a < kotlin.math.abs(mejorX!!.first) - 0.5f ||
+                        (a <= kotlin.math.abs(mejorX!!.first) + 0.5f && lejos < distanciaMejor))) {
+                    mejorX = Triple(d, o, tipo)
+                    distanciaMejor = lejos
+                }
+            }
+        }
+        // El centro del papel también sirve de guía.
+        val alCentro = anchoPapel / 2 - (l + w / 2)
+        if (mejorX == null && kotlin.math.abs(alCentro) <= umbral) {
+            l += alCentro
+            guias += Guia("v:papel", anchoPapel / 2, t - 14, anchoPapel / 2, t + h + 14)
+        }
+        mejorX?.let { (d, o, tipo) ->
+            l += d
+            val xGuia = when (tipo) { "izquierda" -> l; "centro" -> l + w / 2; else -> l + w }
+            // Una línea corta que une los dos elementos.
+            val y1 = if (o.abajo <= t) o.abajo - 10 else t + h + 10
+            val y2 = if (o.abajo <= t) t + 10 else o.arriba + 10
+            guias += Guia("v:${o.id}:$tipo", xGuia, minOf(y1, y2) - 4, xGuia, maxOf(y1, y2) + 4)
+        }
+    }
+    return Colocacion(l, t, guias)
+}
 
 /**
  * Editor visual de plantillas: el ticket en el centro tal como se imprime, tocar un
@@ -296,15 +390,11 @@ fun EditorVisualScreen(
                         vacia = plantilla.elementos.isEmpty(),
                         onEscala = { escala = it },
                         onTocar = { seleccion = it },
-                        onMover = { id, destino, alineacion ->
-                            val lista = actual.elementos.toMutableList()
-                            val i = lista.indexOfFirst { it.id == id }
-                            if (i >= 0) {
-                                var e = lista.removeAt(i)
-                                if (alineacion != null) e = conAlineacion(e, alineacion)
-                                lista.add(destino.coerceIn(0, lista.size), e)
-                                if (lista != actual.elementos) cambiar(actual.copy(elementos = lista))
-                            }
+                        movibles = plantilla.elementos.filter(::admiteX).map { it.id }.toSet(),
+                        onMover = { id, arriba, x ->
+                            val zonas = resultado?.zonas.orEmpty().associate { it.id to (it.arriba to it.abajo) }
+                            val nueva = reubicar(actual, zonas, id, arriba, x)
+                            if (nueva != actual) cambiar(nueva)
                         },
                     )
                     resultado!!.avisos.forEach {
@@ -315,7 +405,7 @@ fun EditorVisualScreen(
                 Spacer(Modifier.height(10.dp))
                 Text(
                     if (seleccion == null) "Toque un elemento para editarlo · manténgalo presionado para moverlo"
-                    else "Mantenga presionado y arrastre para moverlo (a los lados para alinearlo)",
+                    else "Mantenga presionado y arrástrelo a donde quiera; se pega a lo que tiene cerca",
                     Modifier.fillMaxWidth(),
                     textAlign = TextAlign.Center,
                     color = Color(0xFF6B7280),
@@ -384,10 +474,12 @@ fun EditorVisualScreen(
                         maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                     )
                     AccionPanel(Icono.SUBIR, "Subir", i > 0) {
-                        val l = plantilla.elementos.toMutableList(); l.add(i - 1, l.removeAt(i)); cambiar(plantilla.copy(elementos = l))
+                        val l = plantilla.elementos.toMutableList(); l.add(i - 1, l.removeAt(i))
+                        cambiar(plantilla.copy(elementos = l).sinPosicion(l[i - 1].id, l[i].id))
                     }
                     AccionPanel(Icono.BAJAR, "Bajar", i < plantilla.elementos.lastIndex) {
-                        val l = plantilla.elementos.toMutableList(); l.add(i + 1, l.removeAt(i)); cambiar(plantilla.copy(elementos = l))
+                        val l = plantilla.elementos.toMutableList(); l.add(i + 1, l.removeAt(i))
+                        cambiar(plantilla.copy(elementos = l).sinPosicion(l[i].id, l[i + 1].id))
                     }
                     AccionPanel(Icono.COPIAR, "Duplicar", true) {
                         val copia = conIdNuevo(elegido)
@@ -395,7 +487,7 @@ fun EditorVisualScreen(
                         seleccion = copia.id
                     }
                     AccionPanel(Icono.BORRAR, "Eliminar", true, Color(0xFFDC2626)) {
-                        cambiar(plantilla.copy(elementos = plantilla.elementos.filter { it.id != elegido.id }))
+                        cambiar(plantilla.copy(elementos = plantilla.elementos.filter { it.id != elegido.id }).sinPosicion(elegido.id))
                         seleccion = null
                     }
                     if (modoMensaje) AccionPanel(Icono.IMPRESORA, "Imprimir", !imprimiendo, paleta.principal) { onLlenar() }
@@ -407,7 +499,12 @@ fun EditorVisualScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     if (modoMensaje && estado.isNotEmpty()) EstadoImpresion(estado)
-                    EditorElemento(elegido, plantilla, { cambiar(plantilla.copy(elementos = plantilla.elementos.map { e -> if (e.id == it.id) it else e }), it.id) }, guardarImagen)
+                    EditorElemento(elegido, plantilla, { nuevo ->
+                        var p = plantilla.copy(elementos = plantilla.elementos.map { e -> if (e.id == nuevo.id) nuevo else e })
+                        // Elegir una alineación quita la posición a mano a los lados.
+                        if (alineacionDe(nuevo) != alineacionDe(elegido)) p = p.sinPosicion(nuevo.id, soloX = true)
+                        cambiar(p, nuevo.id)
+                    }, guardarImagen)
                 }
             }
         }
@@ -476,7 +573,8 @@ private fun BotonHerramienta(icono: Icono, nombre: String, modifier: Modifier, o
 
 /**
  * El ticket dibujado con un recuadro punteado por elemento. Tocar elige; mantener presionado
- * y arrastrar mueve (arriba/abajo cambia el orden, a los lados cambia la alineación).
+ * y arrastrar lo mueve a donde se quiera (los de todo el ancho, solo arriba o abajo). Cerca de
+ * otro elemento aparece una guía y vibra corto: se pega a la misma altura o al mismo borde.
  */
 @Composable
 private fun Lienzo(
@@ -484,22 +582,24 @@ private fun Lienzo(
     zonas: List<Renderizador.Zona>,
     seleccion: String?,
     vacia: Boolean,
+    movibles: Set<String>,
     onEscala: (Float) -> Unit,
     onTocar: (String?) -> Unit,
-    onMover: (id: String, destino: Int, alineacion: Alineacion?) -> Unit,
+    onMover: (id: String, arriba: Float, x: Int?) -> Unit,
 ) {
     val paleta = LocalPaleta.current
+    val contexto = LocalContext.current
     val zonasActuales by rememberUpdatedState(zonas)
+    val movilesActuales by rememberUpdatedState(movibles)
     var arrastre by remember { mutableStateOf<Arrastre?>(null) }
+    var colocacion by remember { mutableStateOf<Colocacion?>(null) }
+    val colorGuia = Color(0xFFE11D48)
 
-    fun zonaEn(y: Float): Renderizador.Zona? =
-        zonasActuales.firstOrNull { y >= it.arriba && y <= maxOf(it.abajo, it.arriba + 16f) }
-
-    /** Índice donde quedaría el elemento si se suelta con su centro en [centro]. */
-    fun destino(id: String, centro: Float): Int {
-        val otras = zonasActuales.filter { it.id != id }
-        return otras.indexOfFirst { centro < (it.arriba + it.abajo) / 2 }.let { if (it < 0) otras.size else it }
-    }
+    /** El elemento más chico que está bajo el dedo (si hay dos en la misma línea, el que se tocó). */
+    fun zonaEn(x: Float, y: Float): Renderizador.Zona? = zonasActuales
+        .filter { y >= it.arriba && y <= maxOf(it.abajo, it.arriba + 16f) && x >= it.izquierda - 12 && x <= it.derecha + 12 }
+        .minByOrNull { (it.derecha - it.izquierda) * maxOf(it.abajo - it.arriba, 16f) }
+        ?: zonasActuales.firstOrNull { y >= it.arriba && y <= maxOf(it.abajo, it.arriba + 16f) }
 
     Box(
         Modifier
@@ -511,13 +611,34 @@ private fun Lienzo(
         val anchoPx = constraints.maxWidth.toFloat()
         val escala = anchoPx / imagen.width
         LaunchedEffect(escala) { onEscala(escala) }
-        val alto = with(LocalDensity.current) { (imagen.height * escala).toDp() }.coerceAtLeast(if (vacia) 220.dp else 0.dp)
+        val densidad = LocalDensity.current
+        val umbral = with(densidad) { 9.dp.toPx() } / escala
+        val alto = with(densidad) { (imagen.height * escala).toDp() }.coerceAtLeast(if (vacia) 220.dp else 0.dp)
+
+        fun mover(a: Arrastre) {
+            val z = zonasActuales.firstOrNull { it.id == a.id } ?: return
+            val aLosLados = a.id in movilesActuales
+            val anterior = colocacion
+            val nueva = colocar(
+                z,
+                izquierda = if (aLosLados) a.x - a.tomadoX else z.izquierda,
+                arriba = a.y - a.tomadoY,
+                otras = zonasActuales.filter { it.id != a.id },
+                anchoPapel = imagen.width.toFloat(),
+                umbral = umbral,
+                aLosLados = aLosLados,
+            )
+            // Vibra cortito cada vez que aparece una guía nueva.
+            val antes = anterior?.guias.orEmpty().map { it.clave }.toSet()
+            if (nueva.guias.any { it.clave !in antes }) vibrarCorto(contexto)
+            colocacion = nueva
+        }
 
         Box(Modifier.fillMaxWidth().height(alto)) {
             Image(
                 imagen,
                 contentDescription = "Ticket",
-                modifier = Modifier.fillMaxWidth().height(with(LocalDensity.current) { (imagen.height * escala).toDp() }),
+                modifier = Modifier.fillMaxWidth().height(with(densidad) { (imagen.height * escala).toDp() }),
                 contentScale = ContentScale.FillWidth,
                 filterQuality = FilterQuality.Low,
             )
@@ -534,87 +655,105 @@ private fun Lienzo(
                     .matchParentSize()
                     .testTag("lienzo")
                     .pointerInput(escala) {
-                        detectTapGestures { pos -> onTocar(zonaEn(pos.y / escala)?.id) }
+                        detectTapGestures { pos -> onTocar(zonaEn(pos.x / escala, pos.y / escala)?.id) }
                     }
                     .pointerInput(escala) {
                         detectDragGesturesAfterLongPress(
                             onDragStart = { pos ->
-                                val z = zonaEn(pos.y / escala) ?: return@detectDragGesturesAfterLongPress
+                                val x = pos.x / escala
+                                val y = pos.y / escala
+                                val z = zonaEn(x, y) ?: return@detectDragGesturesAfterLongPress
                                 onTocar(z.id)
-                                arrastre = Arrastre(z.id, pos.y / escala - z.arriba, pos.y / escala, pos.x / escala, pos.x / escala)
+                                val a = Arrastre(z.id, x - z.izquierda, y - z.arriba, x, y)
+                                arrastre = a
+                                colocacion = null
+                                mover(a)
                             },
                             onDrag = { cambio, d ->
                                 cambio.consume()
-                                arrastre = arrastre?.let { it.copy(y = it.y + d.y / escala, x = it.x + d.x / escala) }
+                                arrastre = arrastre?.let { it.copy(x = it.x + d.x / escala, y = it.y + d.y / escala) }?.also(::mover)
                             },
                             onDragEnd = {
                                 val a = arrastre
+                                val c = colocacion
                                 arrastre = null
+                                colocacion = null
                                 val z = zonasActuales.firstOrNull { it.id == a?.id }
-                                if (a != null && z != null) {
-                                    val arriba = a.y - a.tomadoEn
-                                    val centro = arriba + (z.abajo - z.arriba) / 2
-                                    val ancho = imagen.width
-                                    val alineacion = if (kotlin.math.abs(a.x - a.xInicio) > ancho / 6f) {
-                                        when {
-                                            a.x < ancho / 3f -> Alineacion.IZQUIERDA
-                                            a.x > ancho * 2 / 3f -> Alineacion.DERECHA
-                                            else -> Alineacion.CENTRO
-                                        }
-                                    } else null
-                                    onMover(a.id, destino(a.id, centro), alineacion)
+                                if (a != null && c != null && z != null) {
+                                    val dx = c.izquierda - z.izquierda
+                                    val x = if (a.id in movilesActuales && kotlin.math.abs(dx) >= 2f) Math.round(z.x + dx) else null
+                                    if (x != null || kotlin.math.abs(c.arriba - z.arriba) >= 1f) onMover(a.id, c.arriba, x)
                                 }
                             },
-                            onDragCancel = { arrastre = null },
+                            onDragCancel = { arrastre = null; colocacion = null },
                         )
                     },
             ) {
                 val punteado = Stroke(width = 1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx(), 4.dp.toPx())))
                 val a = arrastre
-                zonas.forEach { z ->
-                    val top = z.arriba * escala
+                val c = colocacion
+                fun marco(z: Renderizador.Zona, dx: Float = 0f, dy: Float = 0f): Pair<Offset, Size> {
+                    val l = (z.izquierda - 3) * escala + dx
+                    val t = z.arriba * escala + dy
+                    val w = (z.derecha - z.izquierda + 6) * escala
                     val h = maxOf(z.abajo - z.arriba, 16f) * escala
-                    if (z.id == seleccion) {
-                        drawRoundRect(paleta.principal.copy(alpha = 0.08f), Offset(2f, top), Size(size.width - 4f, h), CornerRadius(6.dp.toPx()))
-                        drawRoundRect(paleta.principal, Offset(2f, top), Size(size.width - 4f, h), CornerRadius(6.dp.toPx()), style = Stroke(2.dp.toPx()))
+                    return Offset(l.coerceAtLeast(1f), t) to Size(w.coerceAtMost(size.width - 2f), h)
+                }
+                zonas.forEach { z ->
+                    val (o, tam) = marco(z)
+                    if (z.id == seleccion && a == null) {
+                        drawRoundRect(paleta.principal.copy(alpha = 0.08f), o, tam, CornerRadius(6.dp.toPx()))
+                        drawRoundRect(paleta.principal, o, tam, CornerRadius(6.dp.toPx()), style = Stroke(2.dp.toPx()))
                     } else if (a == null) {
-                        drawRoundRect(Color(0xFFCBD5E1), Offset(4f, top + 1f), Size(size.width - 8f, h - 2f), CornerRadius(5.dp.toPx()), style = punteado)
+                        drawRoundRect(Color(0xFFCBD5E1), o + Offset(1f, 1f), Size(tam.width - 2f, tam.height - 2f), CornerRadius(5.dp.toPx()), style = punteado)
+                    } else if (z.id != a.id) {
+                        drawRoundRect(Color(0xFFE2E8F0), o, tam, CornerRadius(5.dp.toPx()), style = punteado)
                     }
                 }
-                if (a != null) {
+                if (a != null && c != null) {
                     val z = zonas.firstOrNull { it.id == a.id }
                     if (z != null) {
-                        val hPuntos = (z.abajo - z.arriba).coerceAtLeast(16f)
+                        val hPuntos = maxOf(z.abajo - z.arriba, 16f)
+                        val l = z.izquierda.toInt().coerceIn(0, imagen.width - 1)
+                        val r = z.derecha.toInt().coerceIn(l + 1, imagen.width)
+                        val t = z.arriba.toInt().coerceIn(0, imagen.height - 1)
+                        val alto = hPuntos.toInt().coerceAtMost(imagen.height - t)
                         // El lugar de donde sale queda tenue.
-                        drawRect(Color.White.copy(alpha = 0.75f), Offset(0f, z.arriba * escala), Size(size.width, hPuntos * escala))
-                        // Línea donde caería.
-                        val centro = a.y - a.tomadoEn + hPuntos / 2
-                        val otras = zonas.filter { it.id != a.id }
-                        val d = destino(a.id, centro)
-                        val yLinea = when {
-                            otras.isEmpty() -> z.arriba
-                            d >= otras.size -> otras.last().abajo
-                            else -> otras[d].arriba
-                        } * escala
-                        drawLine(paleta.principal, Offset(0f, yLinea), Offset(size.width, yLinea), strokeWidth = 3.dp.toPx())
+                        drawRect(Color.White.copy(alpha = 0.75f), Offset(l * escala, t * escala), Size((r - l) * escala, alto * escala))
                         // El elemento siguiendo el dedo.
-                        val dx = (a.x - a.xInicio) * escala
-                        val dy = (a.y - a.tomadoEn) * escala
+                        val dx = c.izquierda * escala
+                        val dy = c.arriba * escala
                         drawImage(
                             imagen,
-                            srcOffset = IntOffset(0, z.arriba.toInt()),
-                            srcSize = IntSize(imagen.width, hPuntos.toInt().coerceAtMost(imagen.height - z.arriba.toInt())),
+                            srcOffset = IntOffset(l, t),
+                            srcSize = IntSize(r - l, alto),
                             dstOffset = IntOffset(dx.toInt(), dy.toInt()),
-                            dstSize = IntSize(size.width.toInt(), (hPuntos * escala).toInt()),
+                            dstSize = IntSize(((r - l) * escala).toInt(), (alto * escala).toInt()),
                             alpha = 0.9f,
                         )
-                        drawRoundRect(paleta.principal, Offset(dx, dy), Size(size.width, hPuntos * escala), CornerRadius(6.dp.toPx()), style = Stroke(2.dp.toPx()))
+                        drawRoundRect(
+                            paleta.principal, Offset(dx - 3 * escala, dy), Size((r - l + 6) * escala, hPuntos * escala),
+                            CornerRadius(6.dp.toPx()), style = Stroke(2.dp.toPx()),
+                        )
+                        // Guías de alineación.
+                        c.guias.forEach { g ->
+                            drawLine(colorGuia, Offset(g.x1 * escala, g.y1 * escala), Offset(g.x2 * escala, g.y2 * escala), strokeWidth = 1.5.dp.toPx())
+                        }
                     }
                 }
             }
         }
     }
 }
+}
+
+/** Una vibración muy corta, como la de las apps de etiquetas al alinear. */
+private fun vibrarCorto(contexto: Context) {
+    runCatching {
+        val v = contexto.getSystemService(Vibrator::class.java) ?: return
+        if (!v.hasVibrator()) return
+        v.vibrate(VibrationEffect.createOneShot(20, VibrationEffect.DEFAULT_AMPLITUDE))
+    }
 }
 
 @OptIn(ExperimentalLayoutApi::class)

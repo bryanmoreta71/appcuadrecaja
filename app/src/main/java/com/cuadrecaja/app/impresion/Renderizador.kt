@@ -27,6 +27,8 @@ import com.cuadrecaja.app.plantillas.Letra
 import com.cuadrecaja.app.plantillas.Plantilla
 import com.cuadrecaja.app.plantillas.TipoBarras
 import com.cuadrecaja.app.plantillas.TipoCampo
+import com.cuadrecaja.app.plantillas.INICIO_Y
+import com.cuadrecaja.app.plantillas.admiteX
 import com.cuadrecaja.app.plantillas.reemplazarCampos
 import com.cuadrecaja.app.plantillas.totalTabla
 import com.google.zxing.BarcodeFormat
@@ -46,8 +48,18 @@ import java.util.Locale
  */
 class Renderizador(private val context: Context) {
 
-    /** Dónde quedó cada elemento en la imagen (en puntos), para tocarlo en el editor. */
-    data class Zona(val id: String, val arriba: Float, val abajo: Float)
+    /**
+     * Dónde quedó cada elemento en la imagen (en puntos), para tocarlo y moverlo en el editor.
+     * [x] es desde dónde se dibujó (lo que se guarda al moverlo a un lado).
+     */
+    data class Zona(
+        val id: String,
+        val arriba: Float,
+        val abajo: Float,
+        val izquierda: Float = 0f,
+        val derecha: Float = 0f,
+        val x: Float = 0f,
+    )
 
     data class Resultado(val imagen: Bitmap, val avisos: List<String>, val zonas: List<Zona> = emptyList())
 
@@ -56,6 +68,10 @@ class Renderizador(private val context: Context) {
     private val util get() = ancho - margen * 2
     private lateinit var canvas: Canvas
     private var y = 0f
+    /** Lo que ocupa a lo ancho el elemento que se está dibujando. */
+    private var izq = 0f
+    private var der = 0f
+    private var xDibujo = 0f
     private val avisos = mutableListOf<String>()
 
     /** [ejemplo] = true para la vista previa del editor: pone filas de muestra en las tablas. */
@@ -65,7 +81,7 @@ class Renderizador(private val context: Context) {
         val lienzo = Bitmap.createBitmap(ancho, ALTO_MAXIMO, Bitmap.Config.ARGB_8888)
         canvas = Canvas(lienzo)
         canvas.drawColor(Color.WHITE)
-        y = 4f
+        var cursor = INICIO_Y
 
         val extras = mapOf("fecha" to fecha(ahora), "hora" to hora(ahora))
         // En la vista previa del editor, los campos vacíos usados en textos, QR o códigos
@@ -75,26 +91,34 @@ class Renderizador(private val context: Context) {
         )
         val zonas = mutableListOf<Zona>()
         for (e in plantilla.elementos) {
+            val pos = plantilla.posiciones[e.id]
+            y = maxOf(0f, cursor + (pos?.dy ?: 0))
             val inicio = y
+            val libre = pos?.x?.takeIf { admiteX(e) }
+            izq = Float.MAX_VALUE
+            der = -1f
+            xDibujo = margen.toFloat()
             if (y > ALTO_MAXIMO - 200) {
                 avisos += "La plantilla es demasiado larga; se cortó el final."
                 break
             }
             when (e) {
-                is Elemento.Texto -> texto(reemplazarCampos(e.texto, plantilla, paraReemplazar, extras), e.estilo)
+                is Elemento.Texto -> texto(reemplazarCampos(e.texto, plantilla, paraReemplazar, extras), e.estilo, libre)
                 is Elemento.Campo -> campo(e, valorCampo(e, datos, ahora))
                 is Elemento.Tabla -> tabla(e, filasDe(e, datos, ejemplo))
                 is Elemento.Separador -> separador(e)
                 is Elemento.Espacio -> y += e.alto
-                is Elemento.Imagen -> imagen(e)
-                is Elemento.Qr -> qr(e, reemplazarCampos(e.contenido, plantilla, paraReemplazar, extras))
-                is Elemento.Barras -> barras(e, reemplazarCampos(e.contenido, plantilla, paraReemplazar, extras))
+                is Elemento.Imagen -> imagen(e, libre)
+                is Elemento.Qr -> qr(e, reemplazarCampos(e.contenido, plantilla, paraReemplazar, extras), libre)
+                is Elemento.Barras -> barras(e, reemplazarCampos(e.contenido, plantilla, paraReemplazar, extras), libre)
                 is Elemento.Firma -> firma(e)
             }
-            zonas += Zona(e.id, inicio, y)
+            if (der < izq) { izq = margen.toFloat(); der = (ancho - margen).toFloat() }
+            zonas += Zona(e.id, inicio, y, izq, der, xDibujo)
+            cursor = maxOf(cursor, y)
         }
 
-        var alto = (y + 8).toInt().coerceIn(40, ALTO_MAXIMO)
+        var alto = (cursor + 8).toInt().coerceIn(40, ALTO_MAXIMO)
         if (plantilla.largoMm > 0) {
             val fijo = (plantilla.largoMm * PUNTOS_POR_MM).coerceAtMost(ALTO_MAXIMO)
             if (alto > fijo) avisos += "El contenido mide ${alto / PUNTOS_POR_MM} mm, más que el largo elegido (${plantilla.largoMm} mm). Se imprime completo."
@@ -107,17 +131,46 @@ class Renderizador(private val context: Context) {
 
     // ---------- Elementos ----------
 
-    private fun texto(t: String, estilo: Estilo) {
+    /**
+     * Texto a todo el ancho según su alineación; o, si se movió a mano ([libre]), desde esa x
+     * hacia la derecha. [caja] = (x, ancho) para escribirlo dentro de otra cosa (bajo un QR).
+     */
+    private fun texto(t: String, estilo: Estilo, libre: Int? = null, caja: Pair<Float, Int>? = null) {
         if (t.isEmpty()) return
         val paint = pintura(estilo, if (estilo.invertido) Color.WHITE else Color.BLACK)
         val pad = if (estilo.invertido) 8 else 0
-        val layout = diseno(t, paint, util - pad * 2, estilo.alineacion)
-        if (estilo.invertido) {
-            canvas.drawRect(margen.toFloat(), y, (ancho - margen).toFloat(), y + layout.height + pad * 2, relleno())
+        val x0 = when {
+            libre != null -> libre.coerceIn(0, ancho - 24).toFloat()
+            caja != null -> caja.first
+            else -> margen.toFloat()
         }
-        dibujarDiseno(layout, (margen + pad).toFloat(), y + pad)
+        val anchoCaja = when {
+            libre != null -> (ancho - margen - x0.toInt()).coerceAtLeast(24)
+            caja != null -> caja.second
+            else -> util
+        }
+        val layout = diseno(t, paint, anchoCaja - pad * 2, if (libre != null) Alineacion.IZQUIERDA else estilo.alineacion)
+        val anchoLinea = (0 until layout.lineCount).maxOf { layout.getLineWidth(it) }
+        if (estilo.invertido) {
+            val derecha = if (libre != null) x0 + anchoLinea + pad * 2 else x0 + anchoCaja
+            canvas.drawRect(x0, y, derecha, y + layout.height + pad * 2, relleno())
+            marcar(x0, derecha)
+        } else {
+            val l = (0 until layout.lineCount).minOf { layout.getLineLeft(it) }
+            val r = (0 until layout.lineCount).maxOf { layout.getLineRight(it) }
+            marcar(x0 + l, x0 + r)
+        }
+        if (caja == null) xDibujo = x0
+        dibujarDiseno(layout, x0 + pad, y + pad)
         y += layout.height + pad * 2 + 4
     }
+
+    private fun marcar(l: Float, r: Float) {
+        izq = minOf(izq, l)
+        der = maxOf(der, r)
+    }
+
+    private fun todoElAncho() = marcar(margen.toFloat(), (ancho - margen).toFloat())
 
     private fun valorCampo(c: Elemento.Campo, datos: Datos, ahora: Date): String {
         val v = datos.campos[c.id]?.takeIf { it.isNotBlank() } ?: c.valorInicial
@@ -130,6 +183,7 @@ class Renderizador(private val context: Context) {
     }
 
     private fun campo(c: Elemento.Campo, valor: String) {
+        todoElAncho()
         val estilo = c.estilo
         when (c.forma) {
             FormaCampo.EN_LINEA -> {
@@ -204,6 +258,7 @@ class Renderizador(private val context: Context) {
 
     private fun tabla(t: Elemento.Tabla, filas: List<List<String>>) {
         if (t.columnas.isEmpty()) return
+        todoElAncho()
         val pad = 6
         val izquierda = margen.toFloat()
         val derecha = (ancho - margen).toFloat()
@@ -254,12 +309,13 @@ class Renderizador(private val context: Context) {
     }
 
     private fun separador(s: Elemento.Separador) {
+        todoElAncho()
         y += 6
         if (s.borde != Borde.NINGUNO) linea(margen.toFloat(), y, (ancho - margen).toFloat(), y, s.borde, s.grosor.toFloat())
         y += s.grosor + (if (s.borde == Borde.DOBLE) s.grosor * 2 + 4 else 0) + 6
     }
 
-    private fun imagen(i: Elemento.Imagen) {
+    private fun imagen(i: Elemento.Imagen, libre: Int?) {
         val archivo = File(Imagenes.carpeta(context), i.archivo)
         val original = if (i.archivo.isNotBlank() && archivo.exists()) BitmapFactory.decodeFile(archivo.path) else null
         if (original == null) {
@@ -270,11 +326,13 @@ class Renderizador(private val context: Context) {
         val h = (original.height * w / original.width.toFloat()).toInt().coerceAtLeast(1)
         val escalada = Bitmap.createScaledBitmap(original, w, h, true)
         val mono = Imagenes.tramar(escalada)
-        canvas.drawBitmap(mono, xPara(w, i.alineacion), y, null)
+        val x0 = xDe(libre, w, i.alineacion)
+        canvas.drawBitmap(mono, x0, y, null)
+        marcar(x0, x0 + w)
         y += h + 6
     }
 
-    private fun qr(q: Elemento.Qr, contenido: String) {
+    private fun qr(q: Elemento.Qr, contenido: String, libre: Int?) {
         if (contenido.isBlank()) {
             avisos += "Un código QR no tiene contenido."
             return
@@ -296,7 +354,8 @@ class Renderizador(private val context: Context) {
         val objetivo = util * q.tamanoPorcentaje.coerceIn(15, 100) / 100
         val modulo = (objetivo / matriz.width).coerceAtLeast(2)
         val lado = modulo * matriz.width
-        val x0 = xPara(lado, q.alineacion)
+        val x0 = xDe(libre, lado, q.alineacion)
+        marcar(x0, x0 + lado)
         val negro = relleno()
         for (my in 0 until matriz.height) for (mx in 0 until matriz.width) {
             if (!matriz.get(mx, my)) continue
@@ -309,14 +368,17 @@ class Renderizador(private val context: Context) {
             }
         }
         y += lado + 6
-        if (q.mostrarTexto) texto(contenido, Estilo(tamano = 18, alineacion = q.alineacion))
+        if (q.mostrarTexto) {
+            if (libre == null) texto(contenido, Estilo(tamano = 18, alineacion = q.alineacion), caja = margen.toFloat() to util)
+            else texto(contenido, Estilo(tamano = 18, alineacion = Alineacion.CENTRO), caja = x0 to lado.coerceAtLeast(40))
+        }
     }
 
     /** Los tres cuadros grandes de las esquinas se dejan cuadrados para que el QR se lea bien. */
     private fun esOjoQr(x: Int, y: Int, n: Int) =
         (x < 7 && y < 7) || (x >= n - 7 && y < 7) || (x < 7 && y >= n - 7)
 
-    private fun barras(b: Elemento.Barras, contenido: String) {
+    private fun barras(b: Elemento.Barras, contenido: String, libre: Int?) {
         val formato = when (b.tipo) {
             TipoBarras.CODE128 -> BarcodeFormat.CODE_128
             TipoBarras.CODE39 -> BarcodeFormat.CODE_39
@@ -340,7 +402,8 @@ class Renderizador(private val context: Context) {
             return
         }
         val w = modulo * matriz.width
-        val x0 = xPara(w, b.alineacion)
+        val x0 = xDe(libre, w, b.alineacion)
+        marcar(x0, x0 + w)
         val alto = b.alto.coerceIn(30, 300)
         val negro = relleno()
         var x = 0
@@ -363,12 +426,13 @@ class Renderizador(private val context: Context) {
     }
 
     private fun firma(f: Elemento.Firma) {
+        todoElAncho()
         y += 70
         val w = util * 0.75f
         val x0 = xPara(w.toInt(), Alineacion.CENTRO)
         linea(x0, y, x0 + w, y, bordeOLinea(f.borde), 2f)
         y += 6
-        texto(f.etiqueta, Estilo(tamano = 20, alineacion = Alineacion.CENTRO))
+        texto(f.etiqueta, Estilo(tamano = 20, alineacion = Alineacion.CENTRO), caja = margen.toFloat() to util)
     }
 
     // ---------- Ayudantes de dibujo ----------
@@ -408,6 +472,10 @@ class Renderizador(private val context: Context) {
     private fun relleno() = Paint().apply { color = Color.BLACK; style = Paint.Style.FILL }
 
     private fun bordeOLinea(b: Borde) = if (b == Borde.NINGUNO) Borde.PUNTILLOS else b
+
+    /** Desde dónde se dibuja algo de ancho [w]: donde se movió a mano, o según la alineación. */
+    private fun xDe(libre: Int?, w: Int, a: Alineacion): Float =
+        (libre?.coerceIn(0, (ancho - w).coerceAtLeast(0))?.toFloat() ?: xPara(w, a)).also { xDibujo = it }
 
     private fun xPara(w: Int, a: Alineacion): Float = when (a) {
         Alineacion.IZQUIERDA -> margen.toFloat()

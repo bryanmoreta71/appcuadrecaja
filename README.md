@@ -29,7 +29,11 @@ Arriba en el inicio (o en los tres puntos **⋮**) se cambia entre **modo cuadre
   "Salentine vino tinto 750" para elegirlo. Con la ✕ se olvida uno; en Ajustes se borra todo.
 - **Editor visual**: el ticket se ve en el centro tal como se imprime. Tocar un elemento
   lo elige y abajo salen sus opciones (subir, bajar, duplicar, eliminar); mantenerlo
-  presionado y arrastrarlo lo mueve (arriba/abajo cambia el orden, a los lados lo alinea).
+  presionado y arrastrarlo lo mueve **a donde se quiera**: textos, imágenes, QR y códigos de
+  barras también a los lados (dos textos en la misma línea); líneas, campos y tablas, arriba
+  o abajo. Cerca de otro elemento sale una guía roja y una vibración corta: se pega a la
+  misma altura (alineación horizontal) o al mismo borde o centro que el de arriba o abajo
+  (alineación vertical). Lo que está debajo de una tabla baja con ella si se llenan más filas.
   Abajo está el panel para agregar (Texto, QR, código de barras, imagen, tabla, campo, línea,
   firma, título, celda, fecha, hora, párrafo, espacio). Arriba: deshacer, rehacer, nombre,
   limpiar y el **largo del ticket** (automático o fijo en mm; el ancho lo da el papel).
@@ -40,6 +44,9 @@ Arriba en el inicio (o en los tres puntos **⋮**) se cambia entre **modo cuadre
   logos, **código QR** (ligero, sencillo o espeso; cuadros o puntos) y **código de barras**
   (Code 128, Code 39, Code 93, EAN-13, EAN-8, UPC-A, ITF, Codabar) y firma. En textos, QR y
   códigos se puede usar `{Nombre del campo}`, `{fecha}` y `{hora}`.
+- **Imprimir mensaje**: el mismo editor (tipo de letra, tamaño, negrita, alineación, QR,
+  imágenes...) pero sin campos ni tablas. Solo se imprime lo que se escribe; no se guarda
+  como plantilla, solo queda en el historial.
 - **Sacar stock**: listas de códigos de barras guardados, cada uno con su nombre (escritos o
   escaneados con la cámara). Al abrir una lista se muestran uno por uno, grandes y con el
   brillo al máximo, para pasarlos por el escáner: Anterior / Siguiente, deslizando o con los

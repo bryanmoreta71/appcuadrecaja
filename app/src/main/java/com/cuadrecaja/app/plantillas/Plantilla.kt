@@ -164,10 +164,63 @@ data class Plantilla(
     val elementos: List<Elemento> = emptyList(),
     /** Largo del ticket en mm. 0 = automático (lo que mida el contenido). El ancho lo da el papel. */
     val largoMm: Int = 0,
+    /** Dónde se movió cada elemento (id -> posición). Los que no están siguen el orden normal. */
+    val posiciones: Map<String, Posicion> = emptyMap(),
 ) {
     val campos: List<Elemento.Campo> get() = elementos.filterIsInstance<Elemento.Campo>()
     val tablas: List<Elemento.Tabla> get() = elementos.filterIsInstance<Elemento.Tabla>()
 }
+
+/**
+ * Posición de un elemento movido a mano, en puntos. [dy] es cuánto se separa (o se sube, si
+ * es negativo) del final de lo que está antes; así, si una tabla crece al llenarla, lo de
+ * abajo baja con ella. [x] es dónde empieza a la izquierda (null = según su alineación).
+ */
+data class Posicion(val dy: Int = 0, val x: Int? = null)
+
+/** Elementos que se pueden mover a los lados; los demás ocupan todo el ancho. */
+fun admiteX(e: Elemento) = e is Elemento.Texto || e is Elemento.Imagen || e is Elemento.Qr || e is Elemento.Barras
+
+/** Dónde empieza el primer elemento en la tirilla (en puntos). */
+const val INICIO_Y = 4f
+
+/**
+ * Mueve un elemento a [arriba] (y a [x], si no es null) sin que los demás se muevan de donde
+ * se ven: reordena los elementos de arriba hacia abajo y recalcula cuánto se separa cada uno.
+ * [zonas] = id -> (arriba, abajo) tal como están dibujados ahora.
+ */
+fun reubicar(p: Plantilla, zonas: Map<String, Pair<Float, Float>>, id: String, arriba: Float, x: Int?): Plantilla {
+    val ordenados = p.elementos.withIndex().sortedWith(
+        compareBy<IndexedValue<Elemento>>(
+            { if (it.value.id == id) arriba else zonas[it.value.id]?.first ?: Float.MAX_VALUE },
+            { if (it.value.id == id) 1 else 0 },
+            { it.index },
+        ),
+    ).map { it.value }
+    val nuevas = HashMap<String, Posicion>()
+    var cursor = INICIO_Y
+    for (e in ordenados) {
+        val z = zonas[e.id]
+        val top = if (e.id == id) arriba else z?.first ?: cursor
+        val alto = z?.let { it.second - it.first } ?: 0f
+        val dy = Math.round(top - cursor)
+        val px = if (e.id == id && x != null && admiteX(e)) x else p.posiciones[e.id]?.x
+        if (dy != 0 || px != null) nuevas[e.id] = Posicion(dy, px)
+        cursor = maxOf(cursor, maxOf(0f, cursor + dy) + alto)
+    }
+    return p.copy(elementos = ordenados, posiciones = nuevas)
+}
+
+/** Quita la posición a mano de esos elementos (vuelven a ir uno tras otro). */
+fun Plantilla.sinPosicion(vararg ids: String, soloX: Boolean = false): Plantilla = copy(
+    posiciones = posiciones.mapNotNull { (k, v) ->
+        when {
+            k !in ids -> k to v
+            soloX -> if (v.dy != 0) k to v.copy(x = null) else null
+            else -> null
+        }
+    }.toMap(),
+)
 
 fun nuevoId(): String = UUID.randomUUID().toString().take(8)
 
@@ -217,6 +270,11 @@ object PlantillaJson {
         .put("nombre", p.nombre)
         .put("largoMm", p.largoMm)
         .put("elementos", JSONArray().apply { p.elementos.forEach { put(elemento(it)) } })
+        .put("posiciones", JSONObject().apply {
+            p.posiciones.filterKeys { k -> p.elementos.any { it.id == k } }.forEach { (k, v) ->
+                put(k, JSONObject().put("dy", v.dy).apply { v.x?.let { put("x", it) } })
+            }
+        })
 
     fun plantilla(o: JSONObject): Plantilla {
         val arr = o.optJSONArray("elementos") ?: JSONArray()
@@ -225,6 +283,12 @@ object PlantillaJson {
             nombre = o.optString("nombre", "Plantilla"),
             elementos = (0 until arr.length()).mapNotNull { elemento(arr.getJSONObject(it)) },
             largoMm = o.optInt("largoMm", 0).coerceIn(0, 1000),
+            posiciones = o.optJSONObject("posiciones")?.let { pos ->
+                pos.keys().asSequence().associateWith { k ->
+                    val v = pos.getJSONObject(k)
+                    Posicion(v.optInt("dy", 0), if (v.has("x")) v.getInt("x") else null)
+                }
+            } ?: emptyMap(),
         )
     }
 

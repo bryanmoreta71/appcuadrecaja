@@ -10,6 +10,8 @@ import com.cuadrecaja.app.plantillas.Plantilla
 import com.cuadrecaja.app.plantillas.PlantillaJson
 import com.cuadrecaja.app.plantillas.TipoBarras
 import com.cuadrecaja.app.plantillas.TipoCampo
+import com.cuadrecaja.app.plantillas.Posicion
+import com.cuadrecaja.app.plantillas.admiteX
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
@@ -47,26 +49,32 @@ object PaqueteComputadora {
     }
 
     fun crear(context: Context, plantilla: Plantilla, anchoPuntos: Int, memoria: Memoria): Resultado {
-        val dibujo = Renderizador(context).dibujar(plantilla, Datos(), anchoPuntos, Date())
+        val renderizador = Renderizador(context)
         val avisos = mutableListOf<String>()
         val bloques = JSONArray()
+        // Cada bloque va con su posición: "dy" desde el final de lo anterior (como en el
+        // celular) y "x" si se movió a un lado. Así dos cosas pueden ir en la misma línea.
         for (e in plantilla.elementos) {
-            val zona = dibujo.zonas.firstOrNull { it.id == e.id } ?: continue
-            if (esDinamico(e, plantilla)) {
-                bloques.put(JSONObject().put("tipo", "elemento").put("elemento", PlantillaJson.elemento(e)))
+            val pos = plantilla.posiciones[e.id]
+            val bloque = if (esDinamico(e, plantilla)) {
                 if (e is Elemento.Barras && e.tipo != TipoBarras.CODE128) {
                     avisos += "El código de barras con campos se imprime como Code 128 en la computadora."
                 }
+                JSONObject().put("tipo", "elemento").put("elemento", PlantillaJson.elemento(e)).put("x", pos?.x?.takeIf { admiteX(e) } ?: -1)
             } else {
+                // Lo fijo se dibuja solo (sin lo que tenga al lado) y con fondo transparente.
+                val solo = renderizador.dibujar(
+                    plantilla.copy(elementos = listOf(e), posiciones = pos?.x?.let { mapOf(e.id to Posicion(x = it)) } ?: emptyMap(), largoMm = 0),
+                    Datos(), anchoPuntos, Date(),
+                )
+                val zona = solo.zonas.firstOrNull() ?: continue
                 val arriba = zona.arriba.toInt()
-                val alto = (zona.abajo.toInt() - arriba).coerceAtMost(dibujo.imagen.height - arriba)
-                if (alto <= 0) {
-                    bloques.put(JSONObject().put("tipo", "espacio").put("alto", 0))
-                    continue
-                }
-                val pedazo = Bitmap.createBitmap(dibujo.imagen, 0, arriba, dibujo.imagen.width, alto)
-                bloques.put(JSONObject().put("tipo", "imagen").put("alto", alto).put("png", png(pedazo)))
+                val alto = (zona.abajo.toInt() - arriba).coerceAtMost(solo.imagen.height - arriba)
+                if (alto <= 0) JSONObject().put("tipo", "espacio").put("alto", 0)
+                else JSONObject().put("tipo", "imagen").put("alto", alto)
+                    .put("png", png(transparente(Bitmap.createBitmap(solo.imagen, 0, arriba, solo.imagen.width, alto))))
             }
+            bloques.put(bloque.put("dy", pos?.dy ?: 0))
         }
 
         // Lo que ya se escribió en el celular, para que la computadora lo sugiera también.
@@ -86,6 +94,15 @@ object PaqueteComputadora {
             .put("bloques", bloques)
             .put("memoria", recuerdos)
         return Resultado((PREFIJO + json.toString()).toByteArray(Charsets.UTF_8), avisos.distinct())
+    }
+
+    private fun transparente(b: Bitmap): Bitmap {
+        val px = IntArray(b.width * b.height)
+        b.getPixels(px, 0, b.width, 0, 0, b.width, b.height)
+        for (i in px.indices) if (px[i] == android.graphics.Color.WHITE) px[i] = android.graphics.Color.TRANSPARENT
+        val salida = Bitmap.createBitmap(b.width, b.height, Bitmap.Config.ARGB_8888)
+        salida.setPixels(px, 0, b.width, 0, 0, b.width, b.height)
+        return salida
     }
 
     private fun png(b: Bitmap): String {

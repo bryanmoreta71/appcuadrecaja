@@ -411,6 +411,10 @@ public static class NotaDibujo
         public int Ancho;
         public int Margen = 6;
         public float Y = 4;
+        /** Hasta dónde llega lo dibujado. */
+        public float MaxY = 4;
+        /** Desde dónde se dibuja el elemento si se movió a un lado en el celular (-1 = según su alineación). */
+        public int X = -1;
         public List<string> Avisos;
         public int Util { get { return Ancho - Margen * 2; } }
     }
@@ -436,8 +440,13 @@ public static class NotaDibujo
             foreach (CampoNota c in p.Campos)
                 valores[c.Etiqueta.Trim().ToLowerInvariant()] = ValorCampo(c, datos, ahora, false);
 
+            // Como en el celular: cada bloque empieza "dy" puntos después del final de lo
+            // anterior (negativo = más arriba, por ejemplo en la misma línea que otro).
+            float cursor = 4;
             foreach (Dictionary<string, object> b in p.Bloques)
             {
+                l.Y = Math.Max(0, cursor + PaqueteNota.Entero(b, "dy", 0));
+                l.X = PaqueteNota.Entero(b, "x", -1);
                 if (l.Y > AltoMaximo - 200) { l.Avisos.Add("La plantilla es demasiado larga; se cortó el final."); break; }
                 string tipo = PaqueteNota.Texto(b, "tipo", "");
                 if (tipo == "imagen")
@@ -464,10 +473,12 @@ public static class NotaDibujo
                     else if (te == "qr") Qr(l, e, Reemplazar(PaqueteNota.Texto(e, "contenido", ""), valores));
                     else if (te == "barras") Barras(l, e, Reemplazar(PaqueteNota.Texto(e, "contenido", ""), valores));
                 }
+                cursor = Math.Max(cursor, l.Y);
+                l.MaxY = cursor;
             }
         }
 
-        int alto = Math.Max(40, Math.Min(AltoMaximo, (int)(l.Y + 8)));
+        int alto = Math.Max(40, Math.Min(AltoMaximo, (int)(l.MaxY + 8)));
         if (p.LargoMm > 0)
         {
             int fijo = Math.Min(p.LargoMm * PuntosPorMm, AltoMaximo);
@@ -594,14 +605,38 @@ public static class NotaDibujo
 
     private static void Texto(Lienzo l, string t, Estilo e)
     {
+        if (l.X >= 0) TextoLibre(l, t, e, Math.Max(0, Math.Min(l.Ancho - 24, l.X)));
+        else Texto(l, t, e, l.Margen, l.Util);
+    }
+
+    /** Texto dentro de una caja (de x a x + ancho) con su alineación. */
+    private static void Texto(Lienzo l, string t, Estilo e, float x0, float ancho)
+    {
         if (string.IsNullOrEmpty(t)) return;
         int pad = e.Invertido ? 8 : 0;
         using (Font f = Fuente(e))
         using (StringFormat fmt = Formato(e.Alineacion))
         {
-            float h = Medir(l.G, t, f, l.Util - pad * 2, fmt);
-            if (e.Invertido) l.G.FillRectangle(Brushes.Black, l.Margen, l.Y, l.Ancho - l.Margen * 2, h + pad * 2);
-            Escribir(l.G, t, f, e.Invertido ? Brushes.White : Brushes.Black, l.Margen + pad, l.Y + pad, l.Util - pad * 2, fmt);
+            float h = Medir(l.G, t, f, ancho - pad * 2, fmt);
+            if (e.Invertido) l.G.FillRectangle(Brushes.Black, x0, l.Y, ancho, h + pad * 2);
+            Escribir(l.G, t, f, e.Invertido ? Brushes.White : Brushes.Black, x0 + pad, l.Y + pad, ancho - pad * 2, fmt);
+            l.Y += h + pad * 2 + 4;
+        }
+    }
+
+    /** Texto movido a mano en el celular: empieza en x y va hacia la derecha. */
+    private static void TextoLibre(Lienzo l, string t, Estilo e, float x0)
+    {
+        if (string.IsNullOrEmpty(t)) return;
+        int pad = e.Invertido ? 8 : 0;
+        float ancho = Math.Max(24, l.Ancho - l.Margen - x0);
+        using (Font f = Fuente(e))
+        using (StringFormat fmt = Formato("IZQUIERDA"))
+        {
+            SizeF med = l.G.MeasureString(t, f, new SizeF(Math.Max(1, ancho - pad * 2), 10000), fmt);
+            float h = (float)Math.Ceiling(med.Height);
+            if (e.Invertido) l.G.FillRectangle(Brushes.Black, x0, l.Y, (float)Math.Ceiling(med.Width) + pad * 2, h + pad * 2);
+            Escribir(l.G, t, f, e.Invertido ? Brushes.White : Brushes.Black, x0 + pad, l.Y + pad, ancho - pad * 2, fmt);
             l.Y += h + pad * 2 + 4;
         }
     }
@@ -786,7 +821,7 @@ public static class NotaDibujo
         int modulo = Math.Max(2, objetivo / n);
         int lado = modulo * n;
         string alineacion = PaqueteNota.Texto(q, "alineacion", "CENTRO");
-        float x0 = XPara(l, lado, alineacion);
+        float x0 = l.X >= 0 ? Math.Max(0, Math.Min(l.Ancho - lado, l.X)) : XPara(l, lado, alineacion);
         bool puntos = PaqueteNota.Texto(q, "forma", "CUADROS") == "PUNTOS";
         for (int my = 0; my < n; my++)
             for (int mx = 0; mx < n; mx++)
@@ -801,7 +836,8 @@ public static class NotaDibujo
         if (PaqueteNota.Logico(q, "mostrarTexto", false))
         {
             Estilo e = new Estilo(); e.Tamano = 18; e.Alineacion = alineacion;
-            Texto(l, contenido, e);
+            if (l.X >= 0) { e.Alineacion = "CENTRO"; Texto(l, contenido, e, x0, Math.Max(40, lado)); }
+            else Texto(l, contenido, e, l.Margen, l.Util);
         }
     }
 
@@ -817,7 +853,7 @@ public static class NotaDibujo
         int modulo = l.Util * porcentaje / 100 / total;
         if (modulo < 1) { l.Avisos.Add("El código de barras es demasiado largo para el ancho del papel."); return; }
         int w = modulo * total;
-        float x0 = XPara(l, w, PaqueteNota.Texto(b, "alineacion", "CENTRO"));
+        float x0 = l.X >= 0 ? Math.Max(0, Math.Min(l.Ancho - w, l.X)) : XPara(l, w, PaqueteNota.Texto(b, "alineacion", "CENTRO"));
         int alto = Math.Max(30, Math.Min(300, PaqueteNota.Entero(b, "alto", 80)));
         float x = x0;
         for (int i = 0; i < anchos.Count; i++)
