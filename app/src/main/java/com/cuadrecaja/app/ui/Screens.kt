@@ -20,7 +20,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
@@ -212,48 +211,5 @@ fun ReportScreen(reportText: String, status: String, printing: Boolean, onPrint:
         TextButton(onClick = onChangePrinter, modifier = Modifier.align(Alignment.CenterHorizontally)) {
             Text("Cambiar impresora")
         }
-    }
-}
-
-@Composable
-fun MessageScreen(
-    text: String,
-    onTextChange: (String) -> Unit,
-    status: String,
-    printing: Boolean,
-    onPrint: () -> Unit,
-) {
-    Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        Tarjeta {
-            OutlinedTextField(
-                value = text,
-                onValueChange = onTextChange,
-                label = { Text("Escriba el mensaje") },
-                minLines = 6,
-                shape = RoundedCornerShape(14.dp),
-                textStyle = TextStyle(fontSize = 20.sp),
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-        BotonPrincipal(if (printing) "Imprimiendo…" else "🖨️  Imprimir mensaje", enabled = !printing && text.isNotBlank(), onClick = onPrint)
-        EstadoImpresion(status)
-        if (text.isNotEmpty()) {
-            TextButton(onClick = { onTextChange("") }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
-                Text("Borrar texto")
-            }
-        }
-        Text(
-            "Las tildes y la ñ se imprimen sin acento.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = Color(0xFF6B7280),
-            modifier = Modifier.fillMaxWidth(),
-            textAlign = TextAlign.Center,
-        )
     }
 }

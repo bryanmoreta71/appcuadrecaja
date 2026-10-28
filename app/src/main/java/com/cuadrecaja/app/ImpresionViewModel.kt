@@ -12,6 +12,7 @@ import androidx.lifecycle.AndroidViewModel
 import com.cuadrecaja.app.impresion.Imagenes
 import com.cuadrecaja.app.plantillas.Datos
 import com.cuadrecaja.app.plantillas.Elemento
+import com.cuadrecaja.app.plantillas.Estilo
 import com.cuadrecaja.app.plantillas.Plantilla
 import com.cuadrecaja.app.plantillas.PlantillasPorDefecto
 import com.cuadrecaja.app.plantillas.nuevoId
@@ -36,6 +37,11 @@ class ImpresionViewModel(app: Application) : AndroidViewModel(app) {
     val filas = mutableStateMapOf<String, List<List<String>>>()
 
     val entradas = mutableStateListOf<EntradaHistorial>().apply { addAll(historial.entradas()) }
+
+    /** El mensaje que se está armando: se edita como una plantilla, pero no se guarda como tal. */
+    var mensaje by mutableStateOf(
+        Plantilla(id = "mensaje", nombre = "Mensaje", elementos = listOf(Elemento.Texto(texto = "", estilo = Estilo(tamano = 28)))),
+    )
 
     val memoria = Memoria(java.io.File(app.filesDir, "memoria.json"))
     /** Cambia cada vez que la memoria cambia, para que las sugerencias en pantalla se actualicen. */

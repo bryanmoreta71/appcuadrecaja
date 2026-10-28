@@ -70,6 +70,27 @@ class StockCapturasTest {
         File(dir, "s7_lista_impresa.png").outputStream().use { r.imagen.compress(Bitmap.CompressFormat.PNG, 100, it) }
     }
 
+    /** Mensaje: se edita como una plantilla (letra, tamaño...) y solo sale lo escrito. */
+    @Test
+    fun mensajeComoElEditor() {
+        compose.onNodeWithContentDescription("Más opciones").performClick()
+        compose.onNodeWithText("✉️   Imprimir mensaje").performClick()
+        compose.onNode(androidx.compose.ui.test.hasSetTextAction()).performTextInput("Se dejan 20 dólares en sencillo para el turno de la noche")
+        compose.onNodeWithText("Clásica").performScrollTo().performClick()
+        compose.onNodeWithText("Negrita").performScrollTo().performClick()
+        val vm = androidx.lifecycle.ViewModelProvider(compose.activity)[ImpresionViewModel::class.java]
+        val t = vm.mensaje.elementos.first() as com.cuadrecaja.app.plantillas.Elemento.Texto
+        assertEquals("Se dejan 20 dólares en sencillo para el turno de la noche", t.texto)
+        assertEquals(com.cuadrecaja.app.plantillas.Letra.CLASICA, t.estilo.letra)
+        assertEquals(true, t.estilo.negrita)
+        // No aparecen campos ni tablas: un mensaje no se llena después.
+        compose.onNodeWithContentDescription("Listo").performClick()
+        assertEquals(0, compose.onAllNodesWithText("Tabla").fetchSemanticsNodes().size)
+        pantalla("m1_mensaje")
+        // Y no se guarda como plantilla.
+        assertEquals(1, vm.plantillas.size)
+    }
+
     /** Agregar un código y después editar el anterior no debe borrar el nuevo. */
     @Test
     fun editarElAnteriorNoBorraElNuevo() {

@@ -179,9 +179,18 @@ fun EditorVisualScreen(
     guardarImagen: (Uri) -> String?,
     onListo: () -> Unit,
     onLlenar: () -> Unit,
+    /** Para "Mensaje": lo mismo que el editor, pero no es una plantilla; solo se imprime. */
+    modoMensaje: Boolean = false,
+    estado: String = "",
+    imprimiendo: Boolean = false,
+    seleccionInicial: String? = null,
 ) {
     val paleta = LocalPaleta.current
-    var seleccion by remember { mutableStateOf<String?>(null) }
+    var seleccion by remember { mutableStateOf(seleccionInicial) }
+    // En un mensaje no hay nada que llenar después: sin campos ni tablas.
+    val paginas = if (!modoMensaje) paginasHerramientas else paginasHerramientas.flatten()
+        .filter { it.nombre !in setOf("Campo", "Tabla", "Celda", "Párrafo") }
+        .chunked(8)
     val deshacer = remember(plantilla.id) { mutableStateListOf<Plantilla>() }
     val rehacer = remember(plantilla.id) { mutableStateListOf<Plantilla>() }
     var ultimaEdicion by remember { mutableStateOf<Pair<String?, Long>>(null to 0L) }
@@ -251,8 +260,9 @@ fun EditorVisualScreen(
                 IconoLinea(Icono.REHACER, if (rehacer.isNotEmpty()) GrisTexto else Color(0xFFCBD5E1), tamano = 26.dp)
             }
             Text(
-                plantilla.nombre + "  ✎",
-                Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).clickable { renombrar = true }.padding(horizontal = 8.dp, vertical = 10.dp),
+                if (modoMensaje) "Mensaje" else plantilla.nombre + "  ✎",
+                Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).clickable(enabled = !modoMensaje) { renombrar = true }
+                    .padding(horizontal = 8.dp, vertical = 10.dp),
                 textAlign = TextAlign.Center,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
@@ -323,14 +333,14 @@ fun EditorVisualScreen(
                 .background(Color.White, RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp)),
         ) {
             if (elegido == null) {
-                val pager = rememberPagerState { paginasHerramientas.size }
+                val pager = rememberPagerState { paginas.size }
                 HorizontalPager(pager, Modifier.fillMaxWidth().padding(top = 14.dp)) { pagina ->
                     FlowRow(
                         Modifier.fillMaxWidth().padding(horizontal = 8.dp),
                         maxItemsInEachRow = 4,
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        paginasHerramientas[pagina].forEach { h ->
+                        paginas[pagina].forEach { h ->
                             BotonHerramienta(h.icono, h.nombre, Modifier.weight(1f)) {
                                 val crear = h.crear
                                 if (crear == null) elegirImagen.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
@@ -338,17 +348,18 @@ fun EditorVisualScreen(
                             }
                         }
                         // Completar la última fila para que los botones no se estiren.
-                        repeat((4 - paginasHerramientas[pagina].size % 4) % 4) { Spacer(Modifier.weight(1f)) }
+                        repeat((4 - paginas[pagina].size % 4) % 4) { Spacer(Modifier.weight(1f)) }
                     }
                 }
                 Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.Center) {
-                    repeat(paginasHerramientas.size) { i ->
+                    repeat(paginas.size) { i ->
                         Box(
                             Modifier.padding(3.dp).size(width = if (pager.currentPage == i) 18.dp else 6.dp, height = 6.dp)
                                 .clip(CircleShape).background(if (pager.currentPage == i) GrisTexto else Color(0xFFD1D5DB)),
                         )
                     }
                 }
+                if (modoMensaje && estado.isNotEmpty()) Box(Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp)) { EstadoImpresion(estado) }
                 Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     FilledTonalButton(
                         onClick = onListo,
@@ -357,9 +368,10 @@ fun EditorVisualScreen(
                     ) { Text("Listo", fontSize = 17.sp) }
                     Button(
                         onClick = onLlenar,
+                        enabled = !imprimiendo,
                         modifier = Modifier.weight(1f).height(54.dp),
                         shape = CircleShape,
-                    ) { Text("🖨  Imprimir", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1) }
+                    ) { Text(if (imprimiendo) "Imprimiendo…" else "🖨  Imprimir", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1) }
                 }
             } else {
                 val i = plantilla.elementos.indexOf(elegido)
@@ -386,6 +398,7 @@ fun EditorVisualScreen(
                         cambiar(plantilla.copy(elementos = plantilla.elementos.filter { it.id != elegido.id }))
                         seleccion = null
                     }
+                    if (modoMensaje) AccionPanel(Icono.IMPRESORA, "Imprimir", !imprimiendo, paleta.principal) { onLlenar() }
                     AccionPanel(Icono.CERRAR, "Listo", true) { seleccion = null }
                 }
                 HorizontalDivider(Modifier.padding(top = 6.dp), color = Color(0xFFE5E7EB))
@@ -393,6 +406,7 @@ fun EditorVisualScreen(
                     Modifier.fillMaxWidth().heightIn(max = 330.dp).verticalScroll(rememberScrollState()).padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
+                    if (modoMensaje && estado.isNotEmpty()) EstadoImpresion(estado)
                     EditorElemento(elegido, plantilla, { cambiar(plantilla.copy(elementos = plantilla.elementos.map { e -> if (e.id == it.id) it else e }), it.id) }, guardarImagen)
                 }
             }

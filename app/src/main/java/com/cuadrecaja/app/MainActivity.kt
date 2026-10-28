@@ -69,6 +69,7 @@ import com.cuadrecaja.app.impresion.EscPos
 import com.cuadrecaja.app.impresion.PaqueteComputadora
 import com.cuadrecaja.app.impresion.Renderizador
 import com.cuadrecaja.app.plantillas.Datos
+import com.cuadrecaja.app.plantillas.Elemento
 import com.cuadrecaja.app.plantillas.Plantilla
 import com.cuadrecaja.app.ui.AjustesScreen
 import com.cuadrecaja.app.ui.CountScreen
@@ -77,7 +78,6 @@ import com.cuadrecaja.app.ui.EditorVisualScreen
 import com.cuadrecaja.app.ui.HistorialScreen
 import com.cuadrecaja.app.ui.HomeScreen
 import com.cuadrecaja.app.ui.InicioImpresion
-import com.cuadrecaja.app.ui.MessageScreen
 import com.cuadrecaja.app.ui.NotaEntregaScreen
 import com.cuadrecaja.app.ui.PlantillasScreen
 import com.cuadrecaja.app.ui.ReportScreen
@@ -143,7 +143,6 @@ class MainActivity : ComponentActivity() {
     private var pickerDevices by mutableStateOf<List<BluetoothDevice>?>(null)
     private var confirmReset by mutableStateOf(false)
     private var menuOpen by mutableStateOf(false)
-    private var messageText by mutableStateOf("")
     private val foundDevices = mutableStateListOf<BluetoothDevice>()
     private var scanning by mutableStateOf(false)
     private var scanJob: Job? = null
@@ -328,20 +327,18 @@ class MainActivity : ComponentActivity() {
                     if (hasBluetoothPermission()) pickerDevices = printer.pairedDevices() else continuarImpresion()
                 },
             )
-            Screen.Message -> MessageScreen(
-                text = messageText,
-                onTextChange = { messageText = it },
-                status = printStatus,
-                printing = printing,
-                onPrint = {
-                    val lines = buildMessage(messageText, Date())
-                    imprimir(
-                        Trabajo(
-                            "Mensaje: " + messageText.trim().lineSequence().first().take(30),
-                            TipoImpresion.MENSAJE, 1, BluetoothPrinter.buildEscPos(lines), reportToText(lines), null,
-                        ),
-                    )
-                },
+            Screen.Message -> EditorVisualScreen(
+                plantilla = impresion.mensaje,
+                papelMm = impresion.papelMm,
+                onCambio = { impresion.mensaje = it },
+                renderizar = { p -> renderizar(p, Datos()) },
+                guardarImagen = impresion::guardarImagen,
+                onListo = ::atras,
+                onLlenar = ::imprimirMensaje,
+                modoMensaje = true,
+                estado = printStatus,
+                imprimiendo = printing,
+                seleccionInicial = impresion.mensaje.elementos.firstOrNull { it is Elemento.Texto }?.id,
             )
             Screen.Nota -> {
                 val plantilla = impresion.plantilla(impresion.plantillaNota) ?: impresion.plantillas.first()
@@ -493,6 +490,25 @@ class MainActivity : ComponentActivity() {
                 plantilla.nombre + (principal?.let { ": $it" } ?: ""),
                 TipoImpresion.NOTA, copias, EscPos.trabajo(raster, copias), null, img,
                 alImprimir = { impresion.recordarNota(plantilla, datos) },
+            ),
+        )
+    }
+
+    /** El mensaje tal como se ve en el editor: solo lo escrito, sin títulos ni fecha agregados. */
+    private fun imprimirMensaje() {
+        val m = impresion.mensaje
+        val vacio = m.elementos.all { it is Elemento.Texto && it.texto.isBlank() || it is Elemento.Espacio }
+        if (vacio) {
+            printStatus = "Escriba el mensaje primero."
+            return
+        }
+        val img = renderizar(m, Datos()).imagen
+        val raster = EscPos.imagen(img.width, img.height, Renderizador.puntosNegros(img))
+        val primero = m.elementos.filterIsInstance<Elemento.Texto>().map { it.texto.trim() }.firstOrNull { it.isNotEmpty() }
+        imprimir(
+            Trabajo(
+                "Mensaje" + (primero?.let { ": " + it.lineSequence().first().take(30) } ?: ""),
+                TipoImpresion.MENSAJE, 1, EscPos.trabajo(raster, 1), null, img,
             ),
         )
     }

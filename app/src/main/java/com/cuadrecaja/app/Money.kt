@@ -96,38 +96,3 @@ fun reportToText(lines: List<ReportLine>): String = lines.joinToString("\n") { l
     val text = if (line.big) line.text.toCharArray().joinToString(" ") else line.text
     if (line.center) " ".repeat(maxOf(0, (LINE_WIDTH - width) / 2)) + text else text
 }
-
-/** Parte el texto en renglones de [width] letras sin cortar palabras (salvo las muy largas). */
-fun wrapText(text: String, width: Int = LINE_WIDTH): List<String> =
-    text.trimEnd().lines().flatMap { paragraph ->
-        if (paragraph.isBlank()) return@flatMap listOf("")
-        val out = mutableListOf<String>()
-        var current = ""
-        for (word in paragraph.trim().split(Regex("\\s+"))) {
-            var w = word
-            while (w.length > width) {
-                if (current.isNotEmpty()) { out += current; current = "" }
-                out += w.take(width)
-                w = w.drop(width)
-            }
-            current = when {
-                current.isEmpty() -> w
-                current.length + 1 + w.length <= width -> "$current $w"
-                else -> { out += current; w }
-            }
-        }
-        if (current.isNotEmpty()) out += current
-        out
-    }
-
-/** Ticket de un mensaje libre, con fecha y hora. */
-fun buildMessage(text: String, date: Date): List<ReportLine> {
-    val fecha = SimpleDateFormat("dd/MM/yyyy", Locale.US).format(date)
-    val hora = SimpleDateFormat("hh:mm a", Locale.US).format(date)
-    return listOf(
-        ReportLine("MENSAJE", bold = true, center = true, big = true),
-        ReportLine(""),
-        ReportLine(row("Fecha: $fecha", hora)),
-        ReportLine("-".repeat(LINE_WIDTH)),
-    ) + wrapText(text).map { ReportLine(it) }
-}
