@@ -12,6 +12,7 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.os.Build
 import android.os.Bundle
+import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
@@ -52,6 +53,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -79,6 +81,10 @@ import com.cuadrecaja.app.ui.MessageScreen
 import com.cuadrecaja.app.ui.NotaEntregaScreen
 import com.cuadrecaja.app.ui.PlantillasScreen
 import com.cuadrecaja.app.ui.ReportScreen
+import com.cuadrecaja.app.ui.StockEditorScreen
+import com.cuadrecaja.app.ui.StockListasScreen
+import com.cuadrecaja.app.ui.StockSecuenciaScreen
+import com.cuadrecaja.app.stock.StockViewModel
 import com.cuadrecaja.app.ui.theme.LocalPaleta
 import com.cuadrecaja.app.ui.theme.TemaApp
 import kotlinx.coroutines.Job
@@ -96,6 +102,9 @@ private sealed interface Screen {
     data object Historial : Screen
     data class DetalleHistorial(val id: String) : Screen
     data object Ajustes : Screen
+    data object Stock : Screen
+    data class StockEditar(val id: String) : Screen
+    data class StockSecuencia(val id: String) : Screen
 }
 
 /** Lo que se va a mandar a la impresora, sea cuadre, mensaje, nota o reimpresión. */
@@ -118,6 +127,9 @@ class MainActivity : ComponentActivity() {
 
     private val viewModel: CashViewModel by viewModels()
     private val impresion: ImpresionViewModel by viewModels()
+    private val stock: StockViewModel by viewModels()
+    /** Código que se muestra en "Sacar stock" (se mueve también con los botones de volumen). */
+    private var indiceStock by mutableIntStateOf(0)
     private lateinit var printer: BluetoothPrinter
 
     private val pila = mutableStateListOf<Screen>(Screen.Home)
@@ -199,6 +211,19 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** En "Sacar stock", los botones de volumen pasan al siguiente o al anterior código. */
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        val s = screen
+        if (s is Screen.StockSecuencia) {
+            val total = stock.lista(s.id)?.codigos?.count { it.codigo.isNotBlank() } ?: 0
+            when (keyCode) {
+                KeyEvent.KEYCODE_VOLUME_DOWN -> { indiceStock = (indiceStock + 1).coerceAtMost(maxOf(0, total - 1)); return true }
+                KeyEvent.KEYCODE_VOLUME_UP -> { indiceStock = (indiceStock - 1).coerceAtLeast(0); return true }
+            }
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
     // ---------- Navegación ----------
 
     private fun ir(s: Screen) {
@@ -229,6 +254,9 @@ class MainActivity : ComponentActivity() {
         Screen.Historial -> "Historial"
         is Screen.DetalleHistorial -> "Ticket impreso"
         Screen.Ajustes -> "Ajustes"
+        Screen.Stock -> "Sacar stock"
+        is Screen.StockEditar -> "Editar lista"
+        is Screen.StockSecuencia -> "Sacar stock"
     }
 
     @Composable
@@ -252,6 +280,7 @@ class MainActivity : ComponentActivity() {
             OpcionMenu("✉️   Imprimir mensaje") { ir(Screen.Message) }
             OpcionMenu("🎨   Plantillas") { ir(Screen.Plantillas) }
             OpcionMenu("🕘   Historial") { ir(Screen.Historial) }
+            OpcionMenu("🏷️   Sacar stock") { ir(Screen.Stock) }
             OpcionMenu("⚙️   Ajustes") { ir(Screen.Ajustes) }
             HorizontalDivider()
             if (impresion.modo == Modo.CUADRE) {
@@ -384,6 +413,35 @@ class MainActivity : ComponentActivity() {
                         },
                     )
                 }
+            }
+            Screen.Stock -> StockListasScreen(
+                listas = stock.listas,
+                onAbrir = { l ->
+                    if (l.codigos.none { it.codigo.isNotBlank() }) ir(Screen.StockEditar(l.id))
+                    else { indiceStock = 0; ir(Screen.StockSecuencia(l.id)) }
+                },
+                onEditar = { ir(Screen.StockEditar(it.id)) },
+                onEliminar = { stock.eliminar(it.id) },
+                onNueva = { ir(Screen.StockEditar(stock.nueva().id)) },
+            )
+            is Screen.StockEditar -> {
+                val l = stock.lista(current.id)
+                if (l == null) LaunchedEffect(Unit) { atras() }
+                else StockEditorScreen(l, stock::guardar) {
+                    indiceStock = 0
+                    ir(Screen.StockSecuencia(l.id))
+                }
+            }
+            is Screen.StockSecuencia -> {
+                val l = stock.lista(current.id)
+                if (l == null) LaunchedEffect(Unit) { atras() }
+                else StockSecuenciaScreen(
+                    lista = l,
+                    indice = indiceStock,
+                    onIndice = { indiceStock = it.coerceIn(0, maxOf(0, l.codigos.count { c -> c.codigo.isNotBlank() } - 1)) },
+                    onTerminar = ::atras,
+                    onEditar = { ir(Screen.StockEditar(l.id)) },
+                )
             }
             Screen.Ajustes -> AjustesScreen(
                 modo = impresion.modo,

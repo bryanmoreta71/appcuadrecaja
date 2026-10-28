@@ -54,6 +54,8 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     // Códigos QR y de barras
     implementation("com.google.zxing:core:3.5.3")
+    // Escanear códigos de barras con la cámara (Sacar stock)
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     testImplementation("junit:junit:4.13.2")

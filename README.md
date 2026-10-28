@@ -40,6 +40,10 @@ Arriba en el inicio (o en los tres puntos **⋮**) se cambia entre **modo cuadre
   logos, **código QR** (ligero, sencillo o espeso; cuadros o puntos) y **código de barras**
   (Code 128, Code 39, Code 93, EAN-13, EAN-8, UPC-A, ITF, Codabar) y firma. En textos, QR y
   códigos se puede usar `{Nombre del campo}`, `{fecha}` y `{hora}`.
+- **Sacar stock**: listas de códigos de barras guardados, cada uno con su nombre (escritos o
+  escaneados con la cámara). Al abrir una lista se muestran uno por uno, grandes y con el
+  brillo al máximo, para pasarlos por el escáner: Anterior / Siguiente, deslizando o con los
+  botones de volumen. Cada lista tiene sus tres puntos para editar o eliminar.
 - **Historial**: los últimos 5 tickets impresos, para verlos o reimprimirlos.
 - **Ajustes**: ancho del papel (80 o 58 mm) e impresora guardada.
 
